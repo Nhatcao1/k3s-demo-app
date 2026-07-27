@@ -24,8 +24,8 @@ The GitLab pipeline:
 For commit `abc12345`, the resulting images are:
 
 ```text
-registry.gitlab.com/uet-group1950631/k3s-demo-app/web:abc12345
-registry.gitlab.com/uet-group1950631/k3s-demo-app/api:abc12345
+registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/web:abc12345
+registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/api:abc12345
 ```
 
 The matching tags must then be promoted in
