@@ -1,7 +1,34 @@
+# Python
 __pycache__/
 *.py[cod]
-.coverage
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .venv/
-venv/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem
+
+# HE material and generated artifacts
+artifacts/
+contexts/
+ciphertexts/
+evaluation-keys/
+private-keys/
+generated/
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Local Kubernetes and editor state
+kubeconfig*
+.idea/
+.vscode/
 .DS_Store

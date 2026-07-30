@@ -1,49 +1,86 @@
-# K3s demo application
+# HE application for the K3s lab
 
-A small visit-counter application used to learn the complete GitLab CI → GitLab
-Container Registry → GitOps → Argo CD → K3s delivery path.
+This GitLab repository is now the development source for the homomorphic
+encryption application deployed to the K3s lab. The previous counter web
+application remains available in Git history but is no longer built or
+deployed.
 
-## Components
-
-- `web`: static HTML served by Nginx
-- `api`: Flask/Gunicorn HTTP API
-- Redis: supplied by the GitOps repository
-
-The browser requests `/api/visit`. Traefik routes `/api` to the API service and
-all other paths to the web service. The API increments a Redis-backed counter.
-
-## Pipeline
-
-The GitLab pipeline:
-
-1. validates the required repository files;
-2. runs API unit tests;
-3. builds the web and API images in parallel with rootless BuildKit;
-4. pushes immutable images on the default branch.
-
-For commit `abc12345`, the resulting images are:
+Current trial:
 
 ```text
-registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/web:abc12345
-registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/api:abc12345
+HEClient without OpenFHE
+  -> one trusted gateway
+  -> OpenFHE add / subtract / multiply / sum / mean
+  -> explicit result decryption
 ```
 
-The matching tags must then be promoted in
-`k3s-demo-gitops/apps/counter/overlays/<environment>/kustomization.yaml`.
+The caller uses a normal Python interface:
 
-## Local API test
+```python
+from he_client import HEClient
+
+with HEClient("http://he-dev.k3s.test") as he:
+    installment = he.encrypt([12, 25, 41])
+    payment = he.encrypt([10, 20, 30])
+
+    difference = installment - payment
+    total = difference.sum()
+    average = difference.mean()
+
+    print(total.decrypt())
+    print(average.decrypt())
+```
+
+Supported operations are ciphertext `+`, `-`, `*`, `sum()`, and `mean()`.
+Mean divides by the public logical vector length. The gateway is trusted: it
+receives plaintext and retains session secret keys in memory, which is why the
+caller does not install OpenFHE.
+
+## GitLab pipeline
+
+Every pipeline validates files and runs dependency-free contract tests. A
+commit on the default branch also builds and pushes the deployable gateway
+container image:
+
+```text
+registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/openfhe-gateway:<full-commit-sha>
+```
+
+The immutable GitLab application commit is the image tag promoted by the
+GitOps repository. No Docker Hub credential or manual server build is needed
+for the K3s lab. The image defaults to `python -m gateway.app`; Kubernetes
+does not need to replace an unrelated application command.
+
+## Local contract tests
+
+These tests use fake cryptography and do not install OpenFHE:
 
 ```sh
-cd api
-python -m pip install -r requirements.txt
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 ```
 
-## Local container build
+The actual OpenFHE package is installed when the Ubuntu image is built.
 
-```sh
-docker build -t k3s-demo-web:local web
-docker build -t k3s-demo-api:local api
+## Repository roles
+
+```text
+k3s-demo-app
+  -> HE source, tests, Dockerfile, GitLab CI
+
+k3s-demo-gitops
+  -> Kustomize manifests, image promotion, Argo CD
+
+he_k8s
+  -> kept separately for the later production-server path
 ```
 
-No registry credentials or deployment secrets belong in this repository.
+Future HE development for the K3s trial should be committed here first so
+GitLab CI and Argo CD always refer to the same source commit.
+
+## Current limits
+
+- one gateway replica with in-memory sessions;
+- equal-length vectors within a session;
+- bounded CKKS multiplication depth;
+- no TLS or authentication yet;
+- no variance, min/max, dot product, or scoring functions.

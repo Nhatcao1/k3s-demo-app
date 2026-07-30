@@ -9,9 +9,7 @@ stages:
   - build
 
 variables:
-  WEB_IMAGE: "$CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHORT_SHA"
-  API_IMAGE: "$CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHORT_SHA"
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  OPENFHE_GATEWAY_IMAGE: "$CI_REGISTRY_IMAGE/openfhe-gateway:$CI_COMMIT_SHA"
   SECRET_DETECTION_ENABLED: "true"
 
 sast:
@@ -24,62 +22,40 @@ validate-files:
   stage: validate
   image: alpine:3.22
   script:
-    - test -f web/index.html
-    - test -f web/nginx.conf
-    - test -f web/Dockerfile
-    - test -f api/app.py
-    - test -f api/requirements.txt
-    - test -f api/Dockerfile
-    - test -f api/tests/test_app.py
-    - echo "Required files exist."
+    - test -f Dockerfile
+    - test -f requirements.txt
+    - test -f client/gateway_trial.py
+    - test -f gateway/app.py
+    - test -f he_client/client.py
+    - test -f tests/test_gateway_client.py
+    - echo "Required OpenFHE gateway files exist."
 
-test-api:
+test-he:
   stage: test
-  image: python:3.13-alpine
-  cache:
-    key: pip
-    paths:
-      - .cache/pip
-  before_script:
-    - python -m pip install -r api/requirements.txt
+  image: python:3.12-alpine
   script:
-    - cd api
     - python -m unittest discover -s tests -v
 
-.build-image:
+build-openfhe-gateway:
   stage: build
   image:
     name: moby/buildkit:rootless
     entrypoint: [""]
   variables:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
   before_script:
     - mkdir -p "$HOME/.docker"
     - |
       printf '%s' \
         "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" \
         > "$HOME/.docker/config.json"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-
-build-web:
-  extends: .build-image
   script:
-    - echo "Building $WEB_IMAGE"
+    - echo "Building $OPENFHE_GATEWAY_IMAGE"
     - |
       buildctl-daemonless.sh build \
         --frontend dockerfile.v0 \
-        --local context=web \
-        --local dockerfile=web \
-        --output type=image,name="$WEB_IMAGE",push=true
-
-build-api:
-  extends: .build-image
-  script:
-    - echo "Building $API_IMAGE"
-    - |
-      buildctl-daemonless.sh build \
-        --frontend dockerfile.v0 \
-        --local context=api \
-        --local dockerfile=api \
-        --output type=image,name="$API_IMAGE",push=true
+        --local context=. \
+        --local dockerfile=. \
+        --output type=image,name="$OPENFHE_GATEWAY_IMAGE",push=true

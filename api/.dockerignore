@@ -1,6 +1,0 @@
-__pycache__
-*.py[cod]
-tests/
-.git
-.gitignore
-README.md
