@@ -5,6 +5,9 @@ encryption application deployed to the K3s lab. The previous counter web
 application remains available in Git history but is no longer built or
 deployed.
 
+See [docs/he-api-trial.md](docs/he-api-trial.md) for the trial architecture,
+API inputs and outputs, Python example, and current trust model.
+
 Current trial:
 
 ```text
@@ -49,6 +52,28 @@ The demonstration calculates
 Only the two final scalar results are decrypted. It compares them with the
 expected plaintext values and prints `"status": "PASS"` within CKKS tolerance.
 The caller does not install OpenFHE.
+
+## Isolated HEIR trial
+
+The optional HEIR proof compiles one fixed CKKS program:
+
+```text
+adjusted_net_total = SUM((income - expenses) * adjustment)
+```
+
+HEIR owns a separate OpenFHE context; its ciphertexts are never mixed with the
+gateway's `openfhe-python` sessions. The program is compiled and set up lazily
+on its first request, then reused by the gateway process.
+
+Run it against the forwarded gateway:
+
+```sh
+python3 -m client.heir_trial --url http://127.0.0.1:18082
+```
+
+The first request can take longer because it includes one-time compilation and
+key setup. The response reports those timings separately from encryption,
+evaluation, and final audit decryption.
 
 ## GitLab pipeline
 

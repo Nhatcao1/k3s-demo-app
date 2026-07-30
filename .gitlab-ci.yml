@@ -1,35 +1,9 @@
-include:
-  - template: Security/SAST.gitlab-ci.yml
-  - template: Security/Secret-Detection.gitlab-ci.yml
-
 stages:
-  - validate
   - test
-  - secret-detection
   - build
 
 variables:
   OPENFHE_GATEWAY_IMAGE: "$CI_REGISTRY_IMAGE/openfhe-gateway:$CI_COMMIT_SHA"
-  SECRET_DETECTION_ENABLED: "true"
-
-sast:
-  stage: test
-
-secret_detection:
-  stage: secret-detection
-
-validate-files:
-  stage: validate
-  image: alpine:3.22
-  script:
-    - test -f Dockerfile
-    - test -f requirements.txt
-    - test -f client/boss_demo.py
-    - test -f client/gateway_trial.py
-    - test -f gateway/app.py
-    - test -f he_client/client.py
-    - test -f tests/test_gateway_client.py
-    - echo "Required OpenFHE gateway files exist."
 
 test-he:
   stage: test

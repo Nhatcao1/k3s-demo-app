@@ -196,6 +196,28 @@ class HEClient:
     def mean(self, ciphertext: RemoteCiphertext) -> RemoteCiphertext:
         return self._evaluate("mean", ciphertext)
 
+    def adjusted_net_total(
+        self,
+        income: list[float],
+        expenses: list[float],
+        adjustment: list[float],
+    ) -> dict[str, Any]:
+        """Run the isolated HEIR adjusted-net program through the gateway."""
+        result = self._request(
+            "POST",
+            "/heir/adjusted-net",
+            {
+                "income": income,
+                "expenses": expenses,
+                "adjustment": adjustment,
+            },
+        )
+        value = result.get("result")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise HEClientError("gateway did not return a HEIR numeric result")
+        result["result"] = float(value)
+        return result
+
     def decrypt(self, ciphertext: RemoteCiphertext) -> list[float]:
         self._owned(ciphertext)
         assert self._session_id is not None

@@ -11,6 +11,7 @@ RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         ca-certificates \
         libgomp1 \
+        libomp-dev \
         python3 \
         python3-venv \
     && rm -rf /var/lib/apt/lists/*
