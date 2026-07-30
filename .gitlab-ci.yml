@@ -50,13 +50,6 @@ build-openfhe-gateway:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      changes:
-        - Dockerfile
-        - requirements.txt
-        - gateway/**/*
-        - he_client/**/*
-        - client/gateway_trial.py
-        - client/heir_trial.py
   before_script:
     - mkdir -p "$HOME/.docker"
     - |
