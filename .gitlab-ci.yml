@@ -24,6 +24,7 @@ validate-files:
   script:
     - test -f Dockerfile
     - test -f requirements.txt
+    - test -f client/boss_demo.py
     - test -f client/gateway_trial.py
     - test -f gateway/app.py
     - test -f he_client/client.py
@@ -45,6 +46,12 @@ build-openfhe-gateway:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - Dockerfile
+        - requirements.txt
+        - gateway/**/*
+        - he_client/**/*
+        - client/gateway_trial.py
   before_script:
     - mkdir -p "$HOME/.docker"
     - |

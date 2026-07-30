@@ -36,6 +36,20 @@ Mean divides by the public logical vector length. The gateway is trusted: it
 receives plaintext and retains session secret keys in memory, which is why the
 caller does not install OpenFHE.
 
+## Python service demonstration
+
+With the gateway forwarded to local port `18082`, run:
+
+```sh
+python3 -m client.boss_demo --url http://127.0.0.1:18082
+```
+
+The demonstration calculates
+`(income - expenses) * adjustment`, then obtains its encrypted sum and mean.
+Only the two final scalar results are decrypted. It compares them with the
+expected plaintext values and prints `"status": "PASS"` within CKKS tolerance.
+The caller does not install OpenFHE.
+
 ## GitLab pipeline
 
 Every pipeline validates files and runs dependency-free contract tests. A
