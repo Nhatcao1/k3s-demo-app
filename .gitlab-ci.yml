@@ -25,6 +25,7 @@ validate-files:
     - test -f Dockerfile
     - test -f requirements.txt
     - test -f client/boss_demo.py
+    - test -f client/easy_operations_bench.py
     - test -f client/gateway_trial.py
     - test -f client/heir_trial.py
     - test -f gateway/app.py

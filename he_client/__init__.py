@@ -1,5 +1,28 @@
 """Dependency-free client for the trusted HE gateway."""
 
-from .client import HEClient, HEClientError, RemoteCiphertext
+from .client import (
+    CorrelationComponents,
+    CovarianceComponents,
+    HEClient,
+    HEClientError,
+    PublicScalar,
+    PublicVector,
+    RemoteCiphertext,
+    VarianceComponents,
+)
 
-__all__ = ["HEClient", "HEClientError", "RemoteCiphertext"]
+EncryptedVector = RemoteCiphertext
+EncryptedScalar = RemoteCiphertext
+
+__all__ = [
+    "CorrelationComponents",
+    "CovarianceComponents",
+    "EncryptedScalar",
+    "EncryptedVector",
+    "HEClient",
+    "HEClientError",
+    "PublicScalar",
+    "PublicVector",
+    "RemoteCiphertext",
+    "VarianceComponents",
+]

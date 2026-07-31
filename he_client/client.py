@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 import os
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -14,6 +15,49 @@ class HEClientError(RuntimeError):
     """Raised when the HE gateway rejects or cannot complete a request."""
 
 
+def _finite_number(value: object, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be a finite number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be a finite number")
+    return number
+
+
+@dataclass(frozen=True)
+class PublicVector:
+    """A vector intentionally sent to the gateway without encryption."""
+
+    values: tuple[float, ...]
+
+    def __init__(self, values: list[float] | tuple[float, ...]) -> None:
+        if not isinstance(values, (list, tuple)) or not values:
+            raise ValueError("PublicVector requires a non-empty numeric list")
+        object.__setattr__(
+            self,
+            "values",
+            tuple(_finite_number(value, "public vector value") for value in values),
+        )
+
+    def _payload(self) -> dict[str, object]:
+        return {"kind": "public_vector", "values": list(self.values)}
+
+
+@dataclass(frozen=True)
+class PublicScalar:
+    """A scalar intentionally sent to the gateway without encryption."""
+
+    value: float
+
+    def __init__(self, value: float) -> None:
+        object.__setattr__(
+            self, "value", _finite_number(value, "public scalar")
+        )
+
+    def _payload(self) -> dict[str, object]:
+        return {"kind": "public_scalar", "value": self.value}
+
+
 @dataclass(frozen=True)
 class RemoteCiphertext:
     """An opaque ciphertext stored in one trusted gateway session."""
@@ -21,19 +65,26 @@ class RemoteCiphertext:
     _client: "HEClient"
     _session_id: str
     _ciphertext_id: str
+    _logical_length: int
 
     def __add__(self, other: object) -> "RemoteCiphertext":
-        if not isinstance(other, RemoteCiphertext):
+        if not isinstance(
+            other, (RemoteCiphertext, PublicVector, PublicScalar)
+        ):
             return NotImplemented
         return self._client.add(self, other)
 
     def __sub__(self, other: object) -> "RemoteCiphertext":
-        if not isinstance(other, RemoteCiphertext):
+        if not isinstance(
+            other, (RemoteCiphertext, PublicVector, PublicScalar)
+        ):
             return NotImplemented
         return self._client.subtract(self, other)
 
     def __mul__(self, other: object) -> "RemoteCiphertext":
-        if not isinstance(other, RemoteCiphertext):
+        if not isinstance(
+            other, (RemoteCiphertext, PublicVector, PublicScalar)
+        ):
             return NotImplemented
         return self._client.multiply(self, other)
 
@@ -46,11 +97,44 @@ class RemoteCiphertext:
     def mean(self) -> "RemoteCiphertext":
         return self._client.mean(self)
 
+    def square(self) -> "RemoteCiphertext":
+        return self._client.square(self)
+
     def __repr__(self) -> str:
         return (
             f"RemoteCiphertext(session={self._session_id[:8]!r}, "
-            f"id={self._ciphertext_id[:8]!r})"
+            f"id={self._ciphertext_id[:8]!r}, "
+            f"logical_length={self._logical_length})"
         )
+
+
+@dataclass(frozen=True)
+class VarianceComponents:
+    sum_x: RemoteCiphertext
+    sum_x_square: RemoteCiphertext
+    count: int
+
+
+@dataclass(frozen=True)
+class CovarianceComponents:
+    sum_x: RemoteCiphertext
+    sum_y: RemoteCiphertext
+    sum_xy: RemoteCiphertext
+    count: int
+
+
+@dataclass(frozen=True)
+class CorrelationComponents:
+    sum_x: RemoteCiphertext
+    sum_y: RemoteCiphertext
+    sum_x_square: RemoteCiphertext
+    sum_y_square: RemoteCiphertext
+    sum_xy: RemoteCiphertext
+    count: int
+
+
+PublicOperand = PublicVector | PublicScalar
+BinaryOperand = RemoteCiphertext | PublicOperand
 
 
 class HEClient:
@@ -147,24 +231,38 @@ class HEClient:
             if not isinstance(ciphertext_id, str):
                 raise HEClientError("gateway did not return a ciphertext ID")
 
-        return RemoteCiphertext(self, self._session_id, ciphertext_id)
+        return RemoteCiphertext(
+            self,
+            self._session_id,
+            ciphertext_id,
+            len(values),
+        )
 
     def _evaluate(
         self,
         operation: str,
         left: RemoteCiphertext,
-        right: RemoteCiphertext | None = None,
+        right: BinaryOperand | None = None,
     ) -> RemoteCiphertext:
         self._owned(left)
-        if right is not None:
+        if isinstance(right, RemoteCiphertext):
             self._owned(right)
         assert self._session_id is not None
         payload = {
             "operation": operation,
             "left": left._ciphertext_id,
         }
-        if right is not None:
+        if isinstance(right, RemoteCiphertext):
             payload["right"] = right._ciphertext_id
+        elif isinstance(right, (PublicVector, PublicScalar)):
+            if (
+                isinstance(right, PublicVector)
+                and len(right.values) != left._logical_length
+            ):
+                raise HEClientError(
+                    "public vector must match ciphertext logical length"
+                )
+            payload["right"] = right._payload()
         result = self._request(
             "POST",
             f"/sessions/{self._session_id}/evaluate",
@@ -173,28 +271,106 @@ class HEClient:
         ciphertext_id = result.get("ciphertext_id")
         if not isinstance(ciphertext_id, str):
             raise HEClientError("gateway did not return a ciphertext ID")
-        return RemoteCiphertext(self, self._session_id, ciphertext_id)
+        logical_length = (
+            1 if operation in {"sum", "mean"} else left._logical_length
+        )
+        return RemoteCiphertext(
+            self,
+            self._session_id,
+            ciphertext_id,
+            logical_length,
+        )
 
     def add(
-        self, left: RemoteCiphertext, right: RemoteCiphertext
+        self, left: RemoteCiphertext, right: BinaryOperand
     ) -> RemoteCiphertext:
         return self._evaluate("add", left, right)
 
     def subtract(
-        self, left: RemoteCiphertext, right: RemoteCiphertext
+        self, left: RemoteCiphertext, right: BinaryOperand
     ) -> RemoteCiphertext:
         return self._evaluate("subtract", left, right)
 
     def multiply(
-        self, left: RemoteCiphertext, right: RemoteCiphertext
+        self, left: RemoteCiphertext, right: BinaryOperand
     ) -> RemoteCiphertext:
         return self._evaluate("multiply", left, right)
+
+    def square(self, ciphertext: RemoteCiphertext) -> RemoteCiphertext:
+        return self._evaluate("square", ciphertext)
 
     def sum(self, ciphertext: RemoteCiphertext) -> RemoteCiphertext:
         return self._evaluate("sum", ciphertext)
 
     def mean(self, ciphertext: RemoteCiphertext) -> RemoteCiphertext:
         return self._evaluate("mean", ciphertext)
+
+    def variance_components(
+        self, ciphertext: RemoteCiphertext
+    ) -> VarianceComponents:
+        self._owned(ciphertext)
+        return VarianceComponents(
+            sum_x=ciphertext.sum(),
+            sum_x_square=ciphertext.square().sum(),
+            count=ciphertext._logical_length,
+        )
+
+    def covariance_components(
+        self,
+        left: RemoteCiphertext,
+        right: RemoteCiphertext,
+    ) -> CovarianceComponents:
+        self._owned(left)
+        self._owned(right)
+        if left._logical_length != right._logical_length:
+            raise HEClientError(
+                "ciphertexts must have the same logical length"
+            )
+        return CovarianceComponents(
+            sum_x=left.sum(),
+            sum_y=right.sum(),
+            sum_xy=(left * right).sum(),
+            count=left._logical_length,
+        )
+
+    def correlation_components(
+        self,
+        left: RemoteCiphertext,
+        right: RemoteCiphertext,
+    ) -> CorrelationComponents:
+        self._owned(left)
+        self._owned(right)
+        if left._logical_length != right._logical_length:
+            raise HEClientError(
+                "ciphertexts must have the same logical length"
+            )
+        return CorrelationComponents(
+            sum_x=left.sum(),
+            sum_y=right.sum(),
+            sum_x_square=left.square().sum(),
+            sum_y_square=right.square().sum(),
+            sum_xy=(left * right).sum(),
+            count=left._logical_length,
+        )
+
+    def weighted_sum(
+        self,
+        ciphertext: RemoteCiphertext,
+        weights: PublicVector,
+    ) -> RemoteCiphertext:
+        if not isinstance(weights, PublicVector):
+            raise TypeError("weights must be a PublicVector")
+        return (ciphertext * weights).sum()
+
+    def risk_score(
+        self,
+        features: RemoteCiphertext,
+        weights: PublicVector,
+        bias: PublicScalar,
+    ) -> RemoteCiphertext:
+        if not isinstance(bias, PublicScalar):
+            raise TypeError("bias must be a PublicScalar")
+        return self.weighted_sum(features, weights) + bias
 
     def adjusted_net_total(
         self,

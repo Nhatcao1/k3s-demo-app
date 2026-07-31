@@ -13,7 +13,7 @@ Current trial:
 ```text
 HEClient without OpenFHE
   -> one trusted gateway
-  -> OpenFHE add / subtract / multiply / sum / mean
+  -> OpenFHE arithmetic and basic encrypted analytics
   -> explicit result decryption
 ```
 
@@ -34,10 +34,13 @@ with HEClient("http://he-dev.k3s.test") as he:
     print(average.decrypt())
 ```
 
-Supported operations are ciphertext `+`, `-`, `*`, `sum()`, and `mean()`.
-Mean divides by the public logical vector length. The gateway is trusted: it
-receives plaintext and retains session secret keys in memory, which is why the
-caller does not install OpenFHE.
+Supported primitives are ciphertext `+`, `-`, `*`, `square()`, `sum()`, and
+`mean()`. Binary arithmetic accepts either another ciphertext, a
+`PublicVector`, or a `PublicScalar`. `HEClient` composes those primitives into
+variance, covariance and correlation components, weighted sums, and risk
+scores. The gateway tracks logical vector length internally. It is trusted:
+it receives plaintext and retains session secret keys in memory, which is why
+the caller does not install OpenFHE.
 
 ## Python service demonstration
 
@@ -52,6 +55,17 @@ The demonstration calculates
 Only the two final scalar results are decrypted. It compares them with the
 expected plaintext values and prints `"status": "PASS"` within CKKS tolerance.
 The caller does not install OpenFHE.
+
+Run the broader API bench after deploying the matching image:
+
+```sh
+python3 -m client.easy_operations_bench \
+  --url http://127.0.0.1:18082
+```
+
+It verifies public vector/scalar arithmetic, square, variance/covariance/
+correlation components, weighted sum, and risk score against plaintext
+reference values.
 
 ## Isolated HEIR trial
 
@@ -122,4 +136,4 @@ GitLab CI and Argo CD always refer to the same source commit.
 - equal-length vectors within a session;
 - bounded CKKS multiplication depth;
 - no TLS or authentication yet;
-- no variance, min/max, dot product, or scoring functions.
+- comparison, min/max, rolling windows, and vector maximum are not included.

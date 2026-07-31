@@ -5,8 +5,13 @@ import threading
 import unittest
 from urllib.request import urlopen
 
-from gateway.app import create_server
-from he_client import HEClient, HEClientError
+from gateway.app import PublicOperand, create_server
+from he_client import (
+    HEClient,
+    HEClientError,
+    PublicScalar,
+    PublicVector,
+)
 
 
 class FakeGatewayCrypto:
@@ -40,7 +45,7 @@ class FakeGatewayCrypto:
         session_id: str,
         operation: str,
         left_id: str,
-        right_id: str | None,
+        right: str | PublicOperand | None,
     ) -> str:
         self.operations.append(operation)
         left = self.sessions[session_id][left_id]
@@ -48,9 +53,16 @@ class FakeGatewayCrypto:
             return self._store(session_id, [sum(left)])
         if operation == "mean":
             return self._store(session_id, [sum(left) / len(left)])
-        if right_id is None:
-            raise AssertionError(f"{operation} requires a right ciphertext")
-        right = self.sessions[session_id][right_id]
+        if operation == "square":
+            return self._store(session_id, [value * value for value in left])
+        if right is None:
+            raise AssertionError(f"{operation} requires a right operand")
+        if isinstance(right, str):
+            right_values = self.sessions[session_id][right]
+        elif right.kind == "public_vector":
+            right_values = list(right.values)
+        else:
+            right_values = [right.values[0]] * len(left)
         functions = {
             "add": lambda a, b: a + b,
             "subtract": lambda a, b: a - b,
@@ -58,7 +70,7 @@ class FakeGatewayCrypto:
         }
         result = [
             functions[operation](a, b)
-            for a, b in zip(left, right, strict=True)
+            for a, b in zip(left, right_values, strict=True)
         ]
         return self._store(session_id, result)
 
@@ -123,7 +135,28 @@ class GatewayClientTests(unittest.TestCase):
             payload = json.load(response)
         self.assertEqual(
             payload["operations"],
-            ["add", "subtract", "multiply", "sum", "mean"],
+            [
+                "add",
+                "subtract",
+                "multiply",
+                "square",
+                "sum",
+                "mean",
+            ],
+        )
+        self.assertEqual(
+            payload["public_operands"],
+            ["public_vector", "public_scalar"],
+        )
+        self.assertEqual(
+            payload["composite_operations"],
+            [
+                "variance_components",
+                "covariance_components",
+                "correlation_components",
+                "weighted_sum",
+                "risk_score",
+            ],
         )
         self.assertFalse(payload["client_openfhe_required"])
         self.assertTrue(payload["heir"]["available"])
@@ -176,6 +209,65 @@ class GatewayClientTests(unittest.TestCase):
             right = he.encrypt([1, 2])
             self.assertEqual((left - right).decrypt(), [9, 18])
             self.assertEqual(he.subtract(left, right).decrypt(), [9, 18])
+
+    def test_public_operands_and_square(self) -> None:
+        with HEClient(self.base_url) as he:
+            encrypted = he.encrypt([2, 4, 6])
+            public = PublicVector([1, 2, 3])
+
+            self.assertEqual((encrypted + public).decrypt(), [3, 6, 9])
+            self.assertEqual(
+                (encrypted - PublicScalar(1)).decrypt(),
+                [1, 3, 5],
+            )
+            self.assertEqual((encrypted * public).decrypt(), [2, 8, 18])
+            self.assertEqual(encrypted.square().decrypt(), [4, 16, 36])
+            self.assertEqual(he.square(encrypted).decrypt(), [4, 16, 36])
+
+    def test_easy_analytics_components_and_scores(self) -> None:
+        with HEClient(self.base_url) as he:
+            left = he.encrypt([2, 4, 6, 8])
+            right = he.encrypt([1, 3, 5, 7])
+
+            variance = he.variance_components(left)
+            self.assertEqual(variance.sum_x.decrypt(), [20])
+            self.assertEqual(variance.sum_x_square.decrypt(), [120])
+            self.assertEqual(variance.count, 4)
+
+            covariance = he.covariance_components(left, right)
+            self.assertEqual(covariance.sum_x.decrypt(), [20])
+            self.assertEqual(covariance.sum_y.decrypt(), [16])
+            self.assertEqual(covariance.sum_xy.decrypt(), [100])
+            self.assertEqual(covariance.count, 4)
+
+            correlation = he.correlation_components(left, right)
+            self.assertEqual(correlation.sum_x.decrypt(), [20])
+            self.assertEqual(correlation.sum_y.decrypt(), [16])
+            self.assertEqual(correlation.sum_x_square.decrypt(), [120])
+            self.assertEqual(correlation.sum_y_square.decrypt(), [84])
+            self.assertEqual(correlation.sum_xy.decrypt(), [100])
+            self.assertEqual(correlation.count, 4)
+
+            weights = PublicVector([0.1, 0.2, 0.3, 0.4])
+            self.assertAlmostEqual(
+                he.weighted_sum(left, weights).decrypt()[0], 6.0
+            )
+            self.assertAlmostEqual(
+                he.risk_score(
+                    left,
+                    weights,
+                    PublicScalar(1.5),
+                ).decrypt()[0],
+                7.5,
+            )
+
+    def test_public_vector_length_is_checked_locally(self) -> None:
+        with HEClient(self.base_url) as he:
+            encrypted = he.encrypt([1, 2, 3])
+            with self.assertRaisesRegex(
+                HEClientError, "must match ciphertext logical length"
+            ):
+                he.add(encrypted, PublicVector([1, 2]))
 
     def test_rejects_ciphertext_from_another_client(self) -> None:
         with HEClient(self.base_url) as first, HEClient(

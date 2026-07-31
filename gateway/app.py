@@ -30,8 +30,16 @@ MAX_MULTIPLICATIVE_DEPTH = int(os.getenv("MAX_MULTIPLICATIVE_DEPTH", "8"))
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "900"))
 DEFAULT_MULTIPLICATIVE_DEPTH = 3
 BINARY_OPERATIONS = ("add", "subtract", "multiply")
+UNARY_OPERATIONS = ("square",)
 REDUCTION_OPERATIONS = ("sum", "mean")
-OPERATIONS = BINARY_OPERATIONS + REDUCTION_OPERATIONS
+OPERATIONS = BINARY_OPERATIONS + UNARY_OPERATIONS + REDUCTION_OPERATIONS
+COMPOSITE_OPERATIONS = (
+    "variance_components",
+    "covariance_components",
+    "correlation_components",
+    "weighted_sum",
+    "risk_score",
+)
 
 
 class RequestError(ValueError):
@@ -56,7 +64,7 @@ class GatewayCrypto(Protocol):
         session_id: str,
         operation: str,
         left_id: str,
-        right_id: str | None,
+        right: str | PublicOperand | None,
     ) -> str:
         """Evaluate an operation and return a new ciphertext ID."""
 
@@ -85,6 +93,12 @@ class HeirTrial(Protocol):
 class StoredCiphertext:
     value: Any
     logical_length: int
+
+
+@dataclass(frozen=True)
+class PublicOperand:
+    kind: str
+    values: tuple[float, ...]
 
 
 @dataclass
@@ -129,6 +143,32 @@ def require_object(payload: Any, allowed: set[str]) -> dict[str, Any]:
     if unexpected:
         raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
     return payload
+
+
+def validate_public_operand(payload: Any) -> PublicOperand:
+    if not isinstance(payload, dict):
+        raise RequestError(
+            "right must be a ciphertext ID or public operand"
+        )
+    kind = payload.get("kind")
+    if kind == "public_vector":
+        body = require_object(payload, {"kind", "values"})
+        return PublicOperand(
+            kind=kind,
+            values=tuple(validate_values(body.get("values"))),
+        )
+    if kind == "public_scalar":
+        body = require_object(payload, {"kind", "value"})
+        value = body.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise RequestError("public scalar must be a finite number")
+        number = float(value)
+        if not math.isfinite(number):
+            raise RequestError("public scalar must be a finite number")
+        return PublicOperand(kind=kind, values=(number,))
+    raise RequestError(
+        "public operand kind must be public_vector or public_scalar"
+    )
 
 
 class OpenFHEGatewayCrypto:
@@ -252,36 +292,62 @@ class OpenFHEGatewayCrypto:
         session_id: str,
         operation: str,
         left_id: str,
-        right_id: str | None,
+        right: str | PublicOperand | None,
     ) -> str:
         with self._lock:
             session = self._session(session_id, time.monotonic())
             left = self._ciphertext(session, left_id)
             if operation in BINARY_OPERATIONS:
-                if right_id is None:
+                if right is None:
                     raise RequestError(
-                        f"{operation} requires a right ciphertext"
+                        f"{operation} requires a right operand"
                     )
-                right = self._ciphertext(session, right_id)
-                if left.logical_length != right.logical_length:
-                    raise RequestError(
-                        "binary ciphertexts must have the same logical length"
-                    )
+                if isinstance(right, str):
+                    stored_right = self._ciphertext(session, right)
+                    if left.logical_length != stored_right.logical_length:
+                        raise RequestError(
+                            "binary ciphertexts must have the same "
+                            "logical length"
+                        )
+                    right_value = stored_right.value
+                else:
+                    if right.kind == "public_vector":
+                        if len(right.values) != left.logical_length:
+                            raise RequestError(
+                                "public vector must match ciphertext "
+                                "logical length"
+                            )
+                        right_value = (
+                            session.context.MakeCKKSPackedPlaintext(
+                                list(right.values),
+                                1,
+                                left.value.GetLevel(),
+                            )
+                        )
+                    else:
+                        right_value = right.values[0]
                 if operation == "add":
                     result = session.context.EvalAdd(
-                        left.value, right.value
+                        left.value, right_value
                     )
                 elif operation == "subtract":
                     result = session.context.EvalSub(
-                        left.value, right.value
+                        left.value, right_value
                     )
                 else:
                     result = session.context.EvalMult(
-                        left.value, right.value
+                        left.value, right_value
                     )
                 logical_length = left.logical_length
+            elif operation in UNARY_OPERATIONS:
+                if right is not None:
+                    raise RequestError(
+                        f"{operation} accepts only one ciphertext"
+                    )
+                result = session.context.EvalSquare(left.value)
+                logical_length = left.logical_length
             elif operation in REDUCTION_OPERATIONS:
-                if right_id is not None:
+                if right is not None:
                     raise RequestError(
                         f"{operation} accepts only one ciphertext"
                     )
@@ -362,6 +428,13 @@ def make_handler(
                     200,
                     {
                         "operations": list(OPERATIONS),
+                        "public_operands": [
+                            "public_vector",
+                            "public_scalar",
+                        ],
+                        "composite_operations": list(
+                            COMPOSITE_OPERATIONS
+                        ),
                         "scheme": "CKKS",
                         "client_openfhe_required": False,
                         "trusted_gateway": True,
@@ -469,10 +542,14 @@ def make_handler(
                     if not isinstance(left, str) or not left:
                         raise RequestError("left must be a ciphertext ID")
                     if operation in BINARY_OPERATIONS:
-                        if not isinstance(right, str) or not right:
-                            raise RequestError(
-                                "right must be a ciphertext ID"
-                            )
+                        if isinstance(right, str):
+                            if not right:
+                                raise RequestError(
+                                    "right must be a ciphertext ID "
+                                    "or public operand"
+                                )
+                        else:
+                            right = validate_public_operand(right)
                     elif right is not None:
                         raise RequestError(
                             f"{operation} accepts only one ciphertext"
