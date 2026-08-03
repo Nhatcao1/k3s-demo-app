@@ -5,6 +5,22 @@ encryption application deployed to the K3s lab. The previous counter web
 application remains available in Git history but is no longer built or
 deployed.
 
+## Next milestone: encrypted-only evaluator
+
+The currently deployed gateway is a trusted functional trial: it receives
+plaintext and keeps secret keys in Pod memory. It is not the target security
+boundary.
+
+The next implementation separates a trusted test client from a secretless
+evaluator. Plaintext and the secret key remain in the client process; the
+evaluator API receives only serialized OpenFHE context, evaluation keys and
+ciphertext and returns ciphertext. See
+[docs/encrypted-evaluator-implementation.md](docs/encrypted-evaluator-implementation.md)
+for the binding implementation checklist, image contract and acceptance gates.
+
+Until that checklist is complete, the existing gateway documentation below
+describes the current trial rather than the encrypted-only target.
+
 See [docs/he-api-trial.md](docs/he-api-trial.md) for the trial architecture,
 API inputs and outputs, Python example, and current trust model.
 
