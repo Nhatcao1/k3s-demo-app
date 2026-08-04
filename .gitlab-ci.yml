@@ -9,10 +9,10 @@ stages:
   - build
 
 variables:
-  OPENFHE_CPU_IMAGE: "$CI_REGISTRY_IMAGE/openfhe-evaluator-cpu:$CI_COMMIT_SHA"
-  OPENFHE_CPU_LATEST: "$CI_REGISTRY_IMAGE/openfhe-evaluator-cpu:latest"
-  FIDES_GPU_IMAGE: "docker.io/dockerboi99/he_k8s:$CI_COMMIT_SHA"
-  FIDES_GPU_LATEST: "docker.io/dockerboi99/he_k8s:latest"
+  OPENFHE_CPU_IMAGE: "docker.io/dockerboi99/he_k8s:cpu-$CI_COMMIT_SHA"
+  OPENFHE_CPU_LATEST: "docker.io/dockerboi99/he_k8s:cpu-latest"
+  FIDES_GPU_IMAGE: "docker.io/dockerboi99/he_k8s:gpu-$CI_COMMIT_SHA"
+  FIDES_GPU_LATEST: "docker.io/dockerboi99/he_k8s:gpu-latest"
   FIDESLIB_ARCH: "86-real"
   BUILD_JOBS: "4"
   SECRET_DETECTION_ENABLED: "true"
@@ -60,13 +60,13 @@ build-openfhe-evaluator-cpu:
   variables:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
   before_script:
     - mkdir -p "$HOME/.docker"
     - |
-      printf '%s' \
-        "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" \
-        > "$HOME/.docker/config.json"
+      DOCKERHUB_AUTH="$(printf '%s:%s' "$DOCKERHUB_USERNAME" "$DOCKERHUB_TOKEN" | base64 | tr -d '\n')"
+      printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
+        "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
   script:
     - echo "Building $OPENFHE_CPU_IMAGE and $OPENFHE_CPU_LATEST"
     - |

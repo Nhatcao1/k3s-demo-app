@@ -74,8 +74,10 @@ Contract tests require no HE installation. On the default branch, GitLab CI
 builds and pushes:
 
 ```text
-registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/openfhe-evaluator-cpu:<full-commit-sha>
-docker.io/dockerboi99/he_k8s:<full-commit-sha>
+docker.io/dockerboi99/he_k8s:cpu-<full-commit-sha>
+docker.io/dockerboi99/he_k8s:cpu-latest
+docker.io/dockerboi99/he_k8s:gpu-<full-commit-sha>
+docker.io/dockerboi99/he_k8s:gpu-latest
 ```
 
 The CPU image contains only standard `openfhe-python` and starts `python -m
@@ -83,8 +85,9 @@ api.app`. The GPU image is built separately from `gpu/Dockerfile` and contains
 FIDESlib plus its patched OpenFHE. Neither runtime is copied into the other
 image.
 
-The GPU push requires masked project CI/CD variables `DOCKERHUB_USERNAME` and
-`DOCKERHUB_TOKEN`. The Docker Hub token needs read/write permission.
+Both image pushes require masked project CI/CD variables
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. The Docker Hub token needs
+read/write permission. CPU builds automatically; the GPU build remains manual.
 
 Run the dependency-free tests with:
 

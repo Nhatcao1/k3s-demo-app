@@ -25,8 +25,8 @@ Never send or log plaintext or the secret key.
 
 | Backend | Repository/image | HE runtime | Status |
 | --- | --- | --- | --- |
-| CPU | root `Dockerfile` / `openfhe-evaluator-cpu` | standard `openfhe-python` | primitive + SUM API |
-| GPU | `gpu/Dockerfile` / `dockerboi99/he_k8s` | FIDESlib + patched OpenFHE | in-memory primitive + SUM backend; transport pending |
+| CPU | root `Dockerfile` / `dockerboi99/he_k8s:cpu-*` | standard `openfhe-python` | primitive + SUM API |
+| GPU | `gpu/Dockerfile` / `dockerboi99/he_k8s:gpu-*` | FIDESlib + patched OpenFHE | primitive + SUM API; GPU verification pending |
 
 Standard OpenFHE and FIDESlib's patched OpenFHE must never be installed or
 linked into the same image/process. CPU and GPU exchange only serialized
