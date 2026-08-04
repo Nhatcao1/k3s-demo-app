@@ -13,16 +13,15 @@ result ciphertext.
 ## CPU and GPU stay separate
 
 ```text
-k3s-demo-app                         he-gpu-worker
+k3s-demo-app/Dockerfile              k3s-demo-app/gpu/Dockerfile
 standard openfhe-python              FIDESlib + its patched OpenFHE
 CPU image/process                    CUDA GPU image/process
 ```
 
 Do not install or link standard OpenFHE and FIDESlib's patched OpenFHE in the
-same image or process. A future GPU implementation must use the same logical
-operation names and serialized job/result contract, but it is built and run
-independently in `he-gpu-worker`. GPU primitive/SUM execution is not claimed
-until that worker actually implements and passes the server tests.
+same image or process. Both images are built from this repository, but remain
+independent processes. GPU primitive/SUM execution is not claimed until the
+worker under `gpu/` actually implements and passes the server tests.
 
 The backend-neutral operation list is in `common/operations.py`. It imports no
 HE library.
@@ -71,10 +70,16 @@ builds and pushes:
 
 ```text
 registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/openfhe-evaluator-cpu:<full-commit-sha>
+docker.io/dockerboi99/he_k8s:<full-commit-sha>
 ```
 
-The image contains only standard `openfhe-python` and starts `python -m
-api.app`. FIDESlib is not copied into this image.
+The CPU image contains only standard `openfhe-python` and starts `python -m
+api.app`. The GPU image is built separately from `gpu/Dockerfile` and contains
+FIDESlib plus its patched OpenFHE. Neither runtime is copied into the other
+image.
+
+The GPU push requires masked project CI/CD variables `DOCKERHUB_USERNAME` and
+`DOCKERHUB_TOKEN`. The Docker Hub token needs read/write permission.
 
 Run the dependency-free tests with:
 

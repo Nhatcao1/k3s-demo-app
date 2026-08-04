@@ -23,8 +23,8 @@ Never send or log plaintext or the secret key.
 
 | Backend | Repository/image | HE runtime | Status |
 | --- | --- | --- | --- |
-| CPU | `k3s-demo-app` / `openfhe-evaluator-cpu` | standard `openfhe-python` | primitive + SUM API |
-| GPU | `he-gpu-worker` / CUDA image | FIDESlib + patched OpenFHE | build skeleton; operations pending |
+| CPU | root `Dockerfile` / `openfhe-evaluator-cpu` | standard `openfhe-python` | primitive + SUM API |
+| GPU | `gpu/Dockerfile` / `dockerboi99/he_k8s` | FIDESlib + patched OpenFHE | build skeleton; operations pending |
 
 Standard OpenFHE and FIDESlib's patched OpenFHE must never be installed or
 linked into the same image/process. CPU and GPU exchange only serialized
@@ -36,7 +36,7 @@ inputs/results and run as separate jobs or services.
 2. Verify CPU `sum` for one ciphertext batch.
 3. Add trusted-client chunk orchestration: SUM each chunk, then ADD partials.
 4. Run sizes `50k`, `100k`, `500k`, `1m`, then `10m` on the server.
-5. Implement the same four logical operations in the separate FIDESlib worker.
+5. Implement the same four logical operations in the separate `gpu/` worker.
 6. Compare CPU/GPU summaries generated from the same seed and input data.
 
 Do not call a CUDA image a GPU benchmark until it executes the FIDESlib
