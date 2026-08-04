@@ -7,6 +7,8 @@ import tempfile
 import threading
 from typing import Any
 
+from openfhe_cpu.runtime import add, multiply, subtract, sum_slots
+
 
 class OpenFHEBackendError(ValueError):
     """An invalid serialized OpenFHE artifact was supplied."""
@@ -35,22 +37,22 @@ class OpenFHEPythonBackend:
     @staticmethod
     def add(context: Any, left: Any, right: Any) -> Any:
         """Ciphertext + ciphertext; this operation consumes no depth."""
-        return context.EvalAdd(left, right)
+        return add(context, left, right)
 
     @staticmethod
     def subtract(context: Any, left: Any, right: Any) -> Any:
         """Ciphertext - ciphertext; this operation consumes no depth."""
-        return context.EvalSub(left, right)
+        return subtract(context, left, right)
 
     @staticmethod
     def multiply(context: Any, left: Any, right: Any) -> Any:
         """Ciphertext * ciphertext; requires multiplication evaluation keys."""
-        return context.EvalMult(left, right)
+        return multiply(context, left, right)
 
     @staticmethod
     def sum(context: Any, encrypted: Any, valid_count: int) -> Any:
         """Reduce valid packed slots; requires rotation/SUM evaluation keys."""
-        return context.EvalSum(encrypted, valid_count)
+        return sum_slots(context, encrypted, valid_count)
 
     @staticmethod
     def _deserialize_ciphertext(openfhe: Any, path: Path, field: str) -> Any:

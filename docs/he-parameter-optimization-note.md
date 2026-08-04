@@ -3,6 +3,12 @@
 We are first proving that `add`, `subtract`, `multiply`, `sum`, and later
 functions such as `mean` and `variance` work correctly as exposed services.
 The current OpenFHE settings are test defaults, not final optimized settings.
+They live in one place: `openfhe_cpu/runtime.py`.
+
+Current trial values are depth `1`, first modulus `60`, scaling modulus `50`,
+ring dimension `16384`, batch size `8192`, and `FLEXIBLEAUTO` scaling. The
+runtime also creates multiplication/relinearization keys and SUM rotation
+keys. A client should use `OpenFHECPU()` instead of repeating this setup.
 
 There is no single best HE parameter set for every workload. A longer chain
 of multiplications, a reduction, and a simple addition have different needs.

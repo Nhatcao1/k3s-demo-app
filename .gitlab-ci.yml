@@ -32,6 +32,8 @@ validate-files:
     - test -f api/app.py
     - test -f backends/openfhe_python.py
     - test -f common/operations.py
+    - test -f openfhe_cpu/runtime.py
+    - test -f client/direct_openfhe_cpu_test.py
     - test -f tests/test_app.py
     - test -f gpu/Dockerfile
     - test -f gpu/worker/CMakeLists.txt

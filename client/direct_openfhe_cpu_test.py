@@ -1,30 +1,14 @@
 #!/usr/bin/env python3
-"""Small direct CPU trial for the four OpenFHE backend functions."""
+"""Small direct CPU trial using the configured OpenFHE function layer."""
 
 from __future__ import annotations
 
-import openfhe
-
-from backends.openfhe_python import OpenFHEPythonBackend
+from openfhe_cpu import OpenFHECPU
 
 
 LEFT = [1.25, -2.0, 3.5, 4.0]
 RIGHT = [0.75, 5.0, -1.5, 2.0]
 ABSOLUTE_TOLERANCE = 1e-3
-
-
-def decrypt(
-    context: object,
-    secret_key: object,
-    encrypted: object,
-    length: int,
-) -> list[float]:
-    plaintext = context.Decrypt(secret_key, encrypted)
-    plaintext.SetLength(length)
-    return [
-        float(value)
-        for value in plaintext.GetRealPackedValue()[:length]
-    ]
 
 
 def check(name: str, observed: list[float], expected: list[float]) -> None:
@@ -39,67 +23,36 @@ def check(name: str, observed: list[float], expected: list[float]) -> None:
         f"max_error={maximum_error:.3g}"
     )
 
-
 def main() -> None:
-    # These are simple trial defaults, not an optimized production profile.
-    parameters = openfhe.CCParamsCKKSRNS()
-    parameters.SetMultiplicativeDepth(1)
-    parameters.SetScalingModSize(50)
-    parameters.SetBatchSize(8)
-
-    context = openfhe.GenCryptoContext(parameters)
-    for feature in (
-        openfhe.PKE,
-        openfhe.KEYSWITCH,
-        openfhe.LEVELEDSHE,
-        openfhe.ADVANCEDSHE,
-    ):
-        context.Enable(feature)
-
-    keys = context.KeyGen()
-    context.EvalMultKeyGen(keys.secretKey)
-    context.EvalSumKeyGen(keys.secretKey)
-
-    left = context.Encrypt(
-        keys.publicKey,
-        context.MakeCKKSPackedPlaintext(LEFT),
-    )
-    right = context.Encrypt(
-        keys.publicKey,
-        context.MakeCKKSPackedPlaintext(RIGHT),
-    )
-    backend = OpenFHEPythonBackend()
+    he = OpenFHECPU()
+    left = he.encrypt(LEFT)
+    right = he.encrypt(RIGHT)
 
     cases = {
         "add": (
-            backend.add(context, left, right),
+            he.add(left, right),
             [a + b for a, b in zip(LEFT, RIGHT)],
             len(LEFT),
         ),
         "subtract": (
-            backend.subtract(context, left, right),
+            he.subtract(left, right),
             [a - b for a, b in zip(LEFT, RIGHT)],
             len(LEFT),
         ),
         "multiply": (
-            backend.multiply(context, left, right),
+            he.multiply(left, right),
             [a * b for a, b in zip(LEFT, RIGHT)],
             len(LEFT),
         ),
         "sum": (
-            backend.sum(context, left, len(LEFT)),
+            he.sum(left, len(LEFT)),
             [sum(LEFT)],
             1,
         ),
     }
 
     for name, (encrypted, expected, output_length) in cases.items():
-        observed = decrypt(
-            context,
-            keys.secretKey,
-            encrypted,
-            output_length,
-        )
+        observed = he.decrypt(encrypted, output_length)
         check(name, observed, expected)
 
 

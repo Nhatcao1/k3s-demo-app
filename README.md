@@ -25,10 +25,11 @@ Remote ciphertext transport is not claimed until a FIDESlib-compatible
 serialization adapter is implemented and passes the server tests.
 
 The small operation list is in `common/operations.py`. The four explicit
-OpenFHE methods live in `backends/openfhe_python.py`; the matching FIDESlib
-methods live in `gpu/worker/src/fides_backend.cpp`. The HTTP layer contains no
-HE-library calls. Parameter profiles and workflow contracts are intentionally
-left for later.
+CPU defaults and direct functions live in `openfhe_cpu/runtime.py`, and the
+serialized evaluator adapter lives in `backends/openfhe_python.py`. The
+matching FIDESlib methods live in `gpu/worker/src/fides_backend.cpp`. The HTTP
+layer contains no HE-library calls. Parameter profiles and workflow contracts
+are intentionally left for later.
 
 ## Evaluator API
 
