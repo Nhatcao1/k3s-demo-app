@@ -72,7 +72,7 @@ build-openfhe-evaluator-cpu:
         --frontend dockerfile.v0 \
         --local context=. \
         --local dockerfile=. \
-        --output type=image,name="$OPENFHE_CPU_IMAGE,$OPENFHE_CPU_LATEST",push=true
+        --output "type=image,\"name=$OPENFHE_CPU_IMAGE,$OPENFHE_CPU_LATEST\",push=true"
 
 build-fides-evaluator-gpu:
   stage: build
@@ -85,6 +85,8 @@ build-fides-evaluator-gpu:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      when: manual
+      allow_failure: true
   before_script:
     - mkdir -p "$HOME/.docker"
     - |
@@ -100,4 +102,4 @@ build-fides-evaluator-gpu:
         --local dockerfile=gpu \
         --opt build-arg:FIDESLIB_ARCH="$FIDESLIB_ARCH" \
         --opt build-arg:BUILD_JOBS="$BUILD_JOBS" \
-        --output type=image,name="$FIDES_GPU_IMAGE,$FIDES_GPU_LATEST",push=true
+        --output "type=image,\"name=$FIDES_GPU_IMAGE,$FIDES_GPU_LATEST\",push=true"
