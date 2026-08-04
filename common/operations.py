@@ -1,4 +1,4 @@
-"""Small logical operation contract with no HE-library dependency."""
+"""Small logical operation list with no HE-library dependency."""
 
 from __future__ import annotations
 

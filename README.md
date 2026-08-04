@@ -20,11 +20,15 @@ CPU image/process                    CUDA GPU image/process
 
 Do not install or link standard OpenFHE and FIDESlib's patched OpenFHE in the
 same image or process. Both images are built from this repository, but remain
-independent processes. GPU primitive/SUM execution is not claimed until the
-worker under `gpu/` actually implements and passes the server tests.
+independent processes. The GPU worker has an in-memory primitive/SUM backend.
+Remote ciphertext transport is not claimed until a FIDESlib-compatible
+serialization adapter is implemented and passes the server tests.
 
-The backend-neutral operation list is in `common/operations.py`. It imports no
-HE library.
+The small operation list is in `common/operations.py`. The four explicit
+OpenFHE methods live in `backends/openfhe_python.py`; the matching FIDESlib
+methods live in `gpu/worker/src/fides_backend.cpp`. The HTTP layer contains no
+HE-library calls. Parameter profiles and workflow contracts are intentionally
+left for later.
 
 ## Evaluator API
 

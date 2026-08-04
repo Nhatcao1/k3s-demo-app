@@ -11,7 +11,6 @@ from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-
 DEFAULT_LEFT = [1.0, 2.0, 3.0, 4.0]
 DEFAULT_RIGHT = [10.0, 20.0, 30.0, 40.0]
 

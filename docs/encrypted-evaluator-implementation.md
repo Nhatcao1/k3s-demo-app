@@ -8,8 +8,10 @@ Develop only these logical operations first:
 add, subtract, multiply, sum
 ```
 
-The shared names live in `common/operations.py` and do not depend on an HE
-library. MIN/MAX, mean, variance, model inference, and other workloads wait.
+The shared names live in `common/operations.py`. The OpenFHE and FIDESlib
+backends each expose direct methods for the four operations. Parameter
+profiles, workflow contracts, MIN/MAX, mean, variance, model inference, and
+other workloads wait.
 
 ## Security boundary
 
@@ -24,7 +26,7 @@ Never send or log plaintext or the secret key.
 | Backend | Repository/image | HE runtime | Status |
 | --- | --- | --- | --- |
 | CPU | root `Dockerfile` / `openfhe-evaluator-cpu` | standard `openfhe-python` | primitive + SUM API |
-| GPU | `gpu/Dockerfile` / `dockerboi99/he_k8s` | FIDESlib + patched OpenFHE | build skeleton; operations pending |
+| GPU | `gpu/Dockerfile` / `dockerboi99/he_k8s` | FIDESlib + patched OpenFHE | in-memory primitive + SUM backend; transport pending |
 
 Standard OpenFHE and FIDESlib's patched OpenFHE must never be installed or
 linked into the same image/process. CPU and GPU exchange only serialized
@@ -36,7 +38,7 @@ inputs/results and run as separate jobs or services.
 2. Verify CPU `sum` for one ciphertext batch.
 3. Add trusted-client chunk orchestration: SUM each chunk, then ADD partials.
 4. Run sizes `50k`, `100k`, `500k`, `1m`, then `10m` on the server.
-5. Implement the same four logical operations in the separate `gpu/` worker.
+5. Add and verify the missing FIDESlib ciphertext transport adapter.
 6. Compare CPU/GPU summaries generated from the same seed and input data.
 
 Do not call a CUDA image a GPU benchmark until it executes the FIDESlib
@@ -60,7 +62,7 @@ ciphertext. It contains no plaintext result.
 
 Before adding more HE functions:
 
-- GitLab contract tests pass and the CPU image builds;
+- GitLab API tests pass and the CPU image builds;
 - server client decrypts the four results and checks tolerance;
 - SUM works for one batch, then for chunked `50k` input;
 - no request contains a secret key;

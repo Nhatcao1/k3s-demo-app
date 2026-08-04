@@ -1,1 +1,1 @@
-"""Backend-neutral evaluator contracts shared by CPU and GPU workers."""
+"""Small shared operation names used by the evaluator API."""

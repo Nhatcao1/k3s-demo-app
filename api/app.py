@@ -1,4 +1,4 @@
-"""Secretless HTTP API for OpenFHE ciphertext evaluation."""
+"""Thin secretless HTTP API for a ciphertext evaluator backend."""
 
 from __future__ import annotations
 
@@ -7,12 +7,10 @@ import binascii
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
-from pathlib import Path
-import tempfile
-import threading
 import time
 from typing import Any, Protocol
 
+from backends.openfhe_python import OpenFHEBackendError, OpenFHEPythonBackend
 from common.operations import (
     OPERATIONS,
     needs_evaluation_keys,
@@ -30,9 +28,12 @@ class RequestError(ValueError):
 
 
 class CiphertextEvaluator(Protocol):
+    backend_name: str
+    serialization: str
+
     @property
     def ready(self) -> bool:
-        """Return whether the evaluator dependency is available."""
+        """Return whether the evaluator is available."""
 
     def evaluate(
         self,
@@ -44,99 +45,6 @@ class CiphertextEvaluator(Protocol):
         valid_count: int | None,
     ) -> bytes:
         """Return one serialized result ciphertext."""
-
-
-class OpenFHECiphertextEvaluator:
-    """File-backed adapter for standard OpenFHE-Python serialization."""
-
-    _lock = threading.Lock()
-
-    @property
-    def ready(self) -> bool:
-        try:
-            import openfhe  # noqa: F401
-        except (ImportError, OSError):
-            return False
-        return True
-
-    @staticmethod
-    def _deserialize_ciphertext(openfhe: Any, path: Path, field: str) -> Any:
-        ciphertext, ok = openfhe.DeserializeCiphertext(str(path), openfhe.BINARY)
-        if not ok:
-            raise RequestError(f"could not deserialize {field}")
-        return ciphertext
-
-    def evaluate(
-        self,
-        operation: str,
-        context: bytes,
-        ciphertext_a: bytes,
-        ciphertext_b: bytes | None,
-        evaluation_keys: bytes | None,
-        valid_count: int | None,
-    ) -> bytes:
-        if not self.ready:
-            raise RuntimeError("OpenFHE-Python is not installed")
-
-        import openfhe
-
-        # OpenFHE uses process-global context/key registries. Keep one worker
-        # serialized while loading artifacts for an isolated request.
-        with self._lock, tempfile.TemporaryDirectory(prefix="he-evaluate-") as directory:
-            root = Path(directory)
-            context_path = root / "context.bin"
-            left_path = root / "ciphertext-a.bin"
-            result_path = root / "result.bin"
-            context_path.write_bytes(context)
-            left_path.write_bytes(ciphertext_a)
-
-            openfhe.ReleaseAllContexts()
-            for clear_name in ("ClearEvalMultKeys", "ClearEvalAutomorphismKeys"):
-                clear = getattr(openfhe, clear_name, None)
-                if clear is not None:
-                    clear()
-
-            crypto_context, ok = openfhe.DeserializeCryptoContext(
-                str(context_path), openfhe.BINARY
-            )
-            if not ok:
-                raise RequestError("could not deserialize context")
-
-            if evaluation_keys is not None:
-                key_path = root / "evaluation-keys.bin"
-                key_path.write_bytes(evaluation_keys)
-                if operation == "multiply":
-                    ok = crypto_context.DeserializeEvalMultKey(
-                        str(key_path), openfhe.BINARY
-                    )
-                else:
-                    ok = crypto_context.DeserializeEvalAutomorphismKey(
-                        str(key_path), openfhe.BINARY
-                    )
-                if not ok:
-                    raise RequestError("could not deserialize evaluation_keys")
-
-            left = self._deserialize_ciphertext(openfhe, left_path, "ciphertext_a")
-            if operation == "sum":
-                assert valid_count is not None
-                result = crypto_context.EvalSum(left, valid_count)
-            else:
-                assert ciphertext_b is not None
-                right_path = root / "ciphertext-b.bin"
-                right_path.write_bytes(ciphertext_b)
-                right = self._deserialize_ciphertext(
-                    openfhe, right_path, "ciphertext_b"
-                )
-                functions = {
-                    "add": crypto_context.EvalAdd,
-                    "subtract": crypto_context.EvalSub,
-                    "multiply": crypto_context.EvalMult,
-                }
-                result = functions[operation](left, right)
-
-            if not openfhe.SerializeToFile(str(result_path), result, openfhe.BINARY):
-                raise RuntimeError("could not serialize result ciphertext")
-            return result_path.read_bytes()
 
 
 def _decode_artifact(payload: dict[str, Any], name: str) -> bytes:
@@ -161,7 +69,7 @@ def evaluate_request(
     payload: Any,
     evaluator: CiphertextEvaluator,
 ) -> dict[str, Any]:
-    """Validate one encrypted request and encode its encrypted response."""
+    """Validate HTTP data, call the backend, and encode its response."""
     if not isinstance(payload, dict):
         raise RequestError("request body must be a JSON object")
     allowed = {
@@ -181,14 +89,18 @@ def evaluate_request(
         operation = validate_operation(payload.get("operation"))
     except ValueError as error:
         raise RequestError(str(error)) from error
+
     request_id = payload.get("request_id")
     if request_id is not None and (
         not isinstance(request_id, str) or not request_id or len(request_id) > 128
     ):
-        raise RequestError("request_id must be a non-empty string of at most 128 characters")
+        raise RequestError(
+            "request_id must be a non-empty string of at most 128 characters"
+        )
 
     context = _decode_artifact(payload, "context")
     ciphertext_a = _decode_artifact(payload, "ciphertext_a")
+
     ciphertext_b = None
     if needs_right_ciphertext(operation):
         ciphertext_b = _decode_artifact(payload, "ciphertext_b")
@@ -203,25 +115,31 @@ def evaluate_request(
 
     valid_count = payload.get("valid_count")
     if operation == "sum":
-        if isinstance(valid_count, bool) or not isinstance(valid_count, int):
-            raise RequestError("valid_count must be a positive integer for sum")
-        if valid_count < 1:
+        if (
+            isinstance(valid_count, bool)
+            or not isinstance(valid_count, int)
+            or valid_count < 1
+        ):
             raise RequestError("valid_count must be a positive integer for sum")
     elif "valid_count" in payload:
         raise RequestError(f"{operation} does not accept valid_count")
 
     started = time.perf_counter()
-    result = evaluator.evaluate(
-        operation,
-        context,
-        ciphertext_a,
-        ciphertext_b,
-        evaluation_keys,
-        valid_count,
-    )
+    try:
+        result = evaluator.evaluate(
+            operation,
+            context,
+            ciphertext_a,
+            ciphertext_b,
+            evaluation_keys,
+            valid_count,
+        )
+    except OpenFHEBackendError as error:
+        raise RequestError(str(error)) from error
+
     response: dict[str, Any] = {
         "operation": operation,
-        "backend": "cpu-openfhe",
+        "backend": evaluator.backend_name,
         "ciphertext": base64.b64encode(result).decode("ascii"),
         "evaluation_seconds": time.perf_counter() - started,
     }
@@ -231,10 +149,10 @@ def evaluate_request(
 
 
 def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]:
-    """Create a request handler bound to an evaluator."""
+    """Create a request handler bound to one evaluator."""
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "he-evaluator-cpu/0.1"
+        server_version = "he-evaluator/0.2"
 
         def log_message(self, message: str, *args: Any) -> None:
             # The standard log contains method/path/status, never request bodies.
@@ -253,15 +171,18 @@ def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]
                 self._send_json(200, {"status": "ok"})
             elif self.path == "/readyz":
                 status = 200 if evaluator.ready else 503
-                self._send_json(status, {"status": "ready" if evaluator.ready else "not_ready"})
+                self._send_json(
+                    status,
+                    {"status": "ready" if evaluator.ready else "not_ready"},
+                )
             elif self.path == "/v1/capabilities":
                 self._send_json(
                     200,
                     {
                         "operations": list(OPERATIONS),
                         "scheme": "CKKS",
-                        "backend": "cpu-openfhe",
-                        "serialization": "openfhe_binary_base64",
+                        "backend": evaluator.backend_name,
+                        "serialization": evaluator.serialization,
                         "secret_key_required_by_api": False,
                     },
                 )
@@ -272,7 +193,8 @@ def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]
             if self.path != "/v1/evaluate":
                 self._send_json(404, {"error": "not_found"})
                 return
-            if self.headers.get("Content-Type", "").split(";", 1)[0].strip() != "application/json":
+            content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
+            if content_type != "application/json":
                 self._send_json(415, {"error": "content_type_must_be_json"})
                 return
             try:
@@ -303,16 +225,15 @@ def create_server(
     port: int = 8080,
     evaluator: CiphertextEvaluator | None = None,
 ) -> HTTPServer:
-    return HTTPServer(
-        (host, port), make_handler(evaluator or OpenFHECiphertextEvaluator())
-    )
+    selected = evaluator or OpenFHEPythonBackend()
+    return HTTPServer((host, port), make_handler(selected))
 
 
 def main() -> None:
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8080"))
     server = create_server(host=host, port=port)
-    print(f"CPU OpenFHE ciphertext evaluator listening on {host}:{port}", flush=True)
+    print(f"OpenFHE ciphertext evaluator listening on {host}:{port}", flush=True)
     server.serve_forever()
 
 

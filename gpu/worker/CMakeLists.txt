@@ -10,5 +10,10 @@ find_package(fideslib REQUIRED CONFIG)
 set(CMAKE_CXX_COMPILER "${FIDESLIB_CXX_COMPILER}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${FIDESLIB_CXX_FLAGS}")
 
-add_executable(he-gpu-worker src/main.cpp)
+add_executable(
+  he-gpu-worker
+  src/fides_backend.cpp
+  src/main.cpp
+)
+target_include_directories(he-gpu-worker PRIVATE src)
 target_link_libraries(he-gpu-worker PRIVATE fideslib::fideslib)

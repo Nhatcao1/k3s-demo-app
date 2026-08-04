@@ -11,5 +11,8 @@ GPU before deployment.
 Add masked CI/CD variables `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` to the
 `k3s-demo-app` GitLab project. The GPU job is skipped until both exist.
 
-The current worker is a link/build skeleton. Implement `add`, `subtract`,
-`multiply`, then `sum`, without changing the CPU image.
+The worker now contains an in-memory `FidesBackend` with direct `add`,
+`subtract`, `multiply`, and `sum` methods. The pinned FIDESlib API does not
+expose ciphertext file serialization, so remote transport and GPU runtime
+verification remain the next server task. Parameter profiles are left for
+later. This does not change or link the CPU image.

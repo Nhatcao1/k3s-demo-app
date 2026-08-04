@@ -24,6 +24,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api ./api
+COPY backends ./backends
 COPY common ./common
 
 RUN useradd --create-home --uid 10001 appuser

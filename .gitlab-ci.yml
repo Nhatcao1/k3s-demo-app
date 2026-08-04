@@ -10,7 +10,9 @@ stages:
 
 variables:
   OPENFHE_CPU_IMAGE: "$CI_REGISTRY_IMAGE/openfhe-evaluator-cpu:$CI_COMMIT_SHA"
+  OPENFHE_CPU_LATEST: "$CI_REGISTRY_IMAGE/openfhe-evaluator-cpu:latest"
   FIDES_GPU_IMAGE: "docker.io/dockerboi99/he_k8s:$CI_COMMIT_SHA"
+  FIDES_GPU_LATEST: "docker.io/dockerboi99/he_k8s:latest"
   FIDESLIB_ARCH: "86-real"
   BUILD_JOBS: "4"
   SECRET_DETECTION_ENABLED: "true"
@@ -28,11 +30,14 @@ validate-files:
     - test -f Dockerfile
     - test -f requirements.txt
     - test -f api/app.py
+    - test -f backends/openfhe_python.py
     - test -f common/operations.py
     - test -f tests/test_app.py
     - test -f gpu/Dockerfile
     - test -f gpu/worker/CMakeLists.txt
     - test -f gpu/worker/src/main.cpp
+    - test -f gpu/worker/src/fides_backend.cpp
+    - test -f gpu/worker/src/fides_backend.hpp
     - grep -Fq 'openfhe==1.5.1.0.24.4' requirements.txt
     - test "$(wc -l < requirements.txt)" -eq 1
     - echo "Required CPU OpenFHE evaluator files exist."
@@ -59,13 +64,13 @@ build-openfhe-evaluator-cpu:
         "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" \
         > "$HOME/.docker/config.json"
   script:
-    - echo "Building $OPENFHE_CPU_IMAGE"
+    - echo "Building $OPENFHE_CPU_IMAGE and $OPENFHE_CPU_LATEST"
     - |
       buildctl-daemonless.sh build \
         --frontend dockerfile.v0 \
         --local context=. \
         --local dockerfile=. \
-        --output type=image,name="$OPENFHE_CPU_IMAGE",push=true
+        --output type=image,name="$OPENFHE_CPU_IMAGE,$OPENFHE_CPU_LATEST",push=true
 
 build-fides-evaluator-gpu:
   stage: build
@@ -85,7 +90,7 @@ build-fides-evaluator-gpu:
       printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
         "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
   script:
-    - echo "Building $FIDES_GPU_IMAGE for CUDA architecture $FIDESLIB_ARCH"
+    - echo "Building $FIDES_GPU_IMAGE and $FIDES_GPU_LATEST for CUDA architecture $FIDESLIB_ARCH"
     - |
       buildctl-daemonless.sh build \
         --frontend dockerfile.v0 \
@@ -93,4 +98,4 @@ build-fides-evaluator-gpu:
         --local dockerfile=gpu \
         --opt build-arg:FIDESLIB_ARCH="$FIDESLIB_ARCH" \
         --opt build-arg:BUILD_JOBS="$BUILD_JOBS" \
-        --output type=image,name="$FIDES_GPU_IMAGE",push=true
+        --output type=image,name="$FIDES_GPU_IMAGE,$FIDES_GPU_LATEST",push=true

@@ -8,9 +8,9 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from api.app import RequestError, create_server, evaluate_request
-
-
 class FakeEvaluator:
+    backend_name = "test-backend"
+    serialization = "test-bytes-base64"
     ready = True
 
     def evaluate(
@@ -58,6 +58,7 @@ class EvaluateRequestTests(unittest.TestCase):
             ("add", b"context", b"left", b"right", None, None),
         )
         self.assertEqual(base64.b64decode(result["ciphertext"]), b"encrypted-result")
+        self.assertEqual(result["backend"], "test-backend")
 
     def test_multiply_requires_evaluation_keys(self) -> None:
         payload = primitive_payload("multiply")
@@ -123,7 +124,7 @@ class HttpApiTests(unittest.TestCase):
         status, payload = self.get_json("/v1/capabilities")
         self.assertEqual(status, 200)
         self.assertEqual(payload["operations"], ["add", "subtract", "multiply", "sum"])
-        self.assertEqual(payload["backend"], "cpu-openfhe")
+        self.assertEqual(payload["backend"], "test-backend")
         self.assertFalse(payload["secret_key_required_by_api"])
 
     def test_evaluate_endpoint(self) -> None:
