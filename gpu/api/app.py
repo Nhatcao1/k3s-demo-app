@@ -1,0 +1,308 @@
+"""Secretless HTTP adapter for the separate FIDESlib GPU worker."""
+
+from __future__ import annotations
+
+import base64
+import binascii
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import threading
+import time
+from typing import Any, Protocol
+
+
+OPERATIONS = ("add", "subtract", "multiply", "sum")
+MAX_ARTIFACT_BYTES = int(os.getenv("MAX_ARTIFACT_BYTES", str(256 * 1024 * 1024)))
+MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(768 * 1024 * 1024)))
+
+
+class RequestError(ValueError):
+    """The caller supplied an invalid or incompatible HE artifact."""
+
+
+class Evaluator(Protocol):
+    backend_name: str
+    serialization: str
+
+    @property
+    def ready(self) -> bool: ...
+
+    def evaluate(
+        self,
+        operation: str,
+        context: bytes,
+        public_key: bytes,
+        ciphertext_a: bytes,
+        ciphertext_b: bytes | None,
+        evaluation_keys: bytes | None,
+        valid_count: int | None,
+    ) -> bytes: ...
+
+
+def fides_sum_rotation_indices(valid_count: int) -> list[int]:
+    """Return the rotations used by FIDESlib Accumulate(..., bStep=4)."""
+    indices: list[int] = []
+    step = 1
+    while step < valid_count:
+        for multiplier in range(1, 4):
+            index = multiplier * step
+            if index < valid_count:
+                indices.append(index)
+        step *= 4
+    return indices
+
+
+def write_fides_context_metadata(
+    context_path: Path,
+    operation: str,
+    valid_count: int | None,
+    device: int,
+) -> None:
+    rotations = fides_sum_rotation_indices(valid_count or 0) if operation == "sum" else []
+    rotation_text = " ".join(str(index) for index in rotations)
+    (Path(str(context_path) + ".dev")).write_text(
+        f"1 {{ {device} }}\n"
+        "AutoLoadCiphertexts: 1\n"
+        "AutoLoadPlaintexts: 0\n"
+        f"RotationIndexes: {{ {rotation_text} }}\n"
+        "KeyDist: 1\n"
+        "BootstrapSlots: { }\n",
+        encoding="utf-8",
+    )
+
+
+class FidesWorkerBackend:
+    """Invoke the C++ worker once per request using private temporary files."""
+
+    backend_name = "gpu-fideslib"
+    serialization = "openfhe_binary_base64"
+    _lock = threading.Lock()
+
+    def __init__(self, worker: str | None = None, device: int | None = None) -> None:
+        self.worker = Path(worker or os.getenv("HE_GPU_WORKER", "/opt/he-gpu-worker"))
+        self.device = device if device is not None else int(os.getenv("FIDES_DEVICE", "0"))
+        self.timeout = float(os.getenv("HE_GPU_WORKER_TIMEOUT_SECONDS", "600"))
+
+    @property
+    def ready(self) -> bool:
+        return self.worker.is_file() and os.access(self.worker, os.X_OK) and Path(
+            "/dev/nvidiactl"
+        ).exists()
+
+    def evaluate(
+        self,
+        operation: str,
+        context: bytes,
+        public_key: bytes,
+        ciphertext_a: bytes,
+        ciphertext_b: bytes | None,
+        evaluation_keys: bytes | None,
+        valid_count: int | None,
+    ) -> bytes:
+        with self._lock, tempfile.TemporaryDirectory(prefix="fides-evaluate-") as directory:
+            root = Path(directory)
+            paths = {
+                "context": root / "context.bin",
+                "public_key": root / "public-key.bin",
+                "left": root / "ciphertext-a.bin",
+                "right": root / "ciphertext-b.bin",
+                "evaluation_keys": root / "evaluation-keys.bin",
+                "output": root / "result.bin",
+            }
+            paths["context"].write_bytes(context)
+            paths["public_key"].write_bytes(public_key)
+            paths["left"].write_bytes(ciphertext_a)
+            write_fides_context_metadata(
+                paths["context"], operation, valid_count, self.device
+            )
+
+            command = [
+                str(self.worker),
+                "--operation", operation,
+                "--context", str(paths["context"]),
+                "--public-key", str(paths["public_key"]),
+                "--left", str(paths["left"]),
+                "--output", str(paths["output"]),
+            ]
+            if ciphertext_b is not None:
+                paths["right"].write_bytes(ciphertext_b)
+                command.extend(("--right", str(paths["right"])))
+            if evaluation_keys is not None:
+                paths["evaluation_keys"].write_bytes(evaluation_keys)
+                command.extend(("--evaluation-keys", str(paths["evaluation_keys"])))
+            if valid_count is not None:
+                command.extend(("--valid-count", str(valid_count)))
+
+            try:
+                completed = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise RuntimeError("FIDESlib worker could not complete") from error
+            if completed.returncode != 0:
+                raise RequestError("FIDESlib rejected the supplied HE artifacts")
+            if not paths["output"].is_file() or paths["output"].stat().st_size == 0:
+                raise RuntimeError("FIDESlib worker produced no result")
+            return paths["output"].read_bytes()
+
+
+def _decode(payload: dict[str, Any], name: str) -> bytes:
+    value = payload.get(name)
+    if not isinstance(value, str) or not value:
+        raise RequestError(f"{name} must be a non-empty base64 string")
+    if len(value) > 4 * ((MAX_ARTIFACT_BYTES + 2) // 3):
+        raise RequestError(f"{name} exceeds the artifact size limit")
+    try:
+        result = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise RequestError(f"{name} is not valid base64") from error
+    if not result or len(result) > MAX_ARTIFACT_BYTES:
+        raise RequestError(f"{name} has an invalid artifact size")
+    return result
+
+
+def evaluate_request(payload: Any, evaluator: Evaluator) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise RequestError("request body must be a JSON object")
+    allowed = {
+        "operation", "context", "public_key", "ciphertext_a", "ciphertext_b",
+        "evaluation_keys", "valid_count", "request_id",
+    }
+    unexpected = sorted(set(payload) - allowed)
+    if unexpected:
+        raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
+    operation = payload.get("operation")
+    if operation not in OPERATIONS:
+        raise RequestError(f"operation must be one of: {', '.join(OPERATIONS)}")
+
+    request_id = payload.get("request_id")
+    if request_id is not None and (
+        not isinstance(request_id, str) or not request_id or len(request_id) > 128
+    ):
+        raise RequestError("request_id must be a non-empty string of at most 128 characters")
+
+    context = _decode(payload, "context")
+    public_key = _decode(payload, "public_key")
+    ciphertext_a = _decode(payload, "ciphertext_a")
+    ciphertext_b = None
+    if operation != "sum":
+        ciphertext_b = _decode(payload, "ciphertext_b")
+    elif "ciphertext_b" in payload:
+        raise RequestError("sum does not accept ciphertext_b")
+
+    evaluation_keys = None
+    if operation in ("multiply", "sum"):
+        evaluation_keys = _decode(payload, "evaluation_keys")
+    elif "evaluation_keys" in payload:
+        raise RequestError(f"{operation} does not accept evaluation_keys")
+
+    valid_count = payload.get("valid_count")
+    if operation == "sum":
+        if isinstance(valid_count, bool) or not isinstance(valid_count, int) or valid_count < 1:
+            raise RequestError("valid_count must be a positive integer for sum")
+    elif "valid_count" in payload:
+        raise RequestError(f"{operation} does not accept valid_count")
+
+    started = time.perf_counter()
+    result = evaluator.evaluate(
+        operation, context, public_key, ciphertext_a, ciphertext_b,
+        evaluation_keys, valid_count,
+    )
+    response: dict[str, Any] = {
+        "operation": operation,
+        "backend": evaluator.backend_name,
+        "ciphertext": base64.b64encode(result).decode("ascii"),
+        "evaluation_seconds": time.perf_counter() - started,
+    }
+    if request_id is not None:
+        response["request_id"] = request_id
+    return response
+
+
+def make_handler(evaluator: Evaluator) -> type[BaseHTTPRequestHandler]:
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "he-fides-evaluator/0.1"
+
+        def _send(self, status: int, payload: dict[str, Any]) -> None:
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path == "/healthz":
+                self._send(200, {"status": "ok"})
+            elif self.path == "/readyz":
+                self._send(
+                    200 if evaluator.ready else 503,
+                    {"status": "ready" if evaluator.ready else "not_ready"},
+                )
+            elif self.path == "/v1/capabilities":
+                self._send(200, {
+                    "operations": list(OPERATIONS),
+                    "scheme": "CKKS",
+                    "backend": evaluator.backend_name,
+                    "serialization": evaluator.serialization,
+                    "public_key_required_by_api": True,
+                    "secret_key_required_by_api": False,
+                })
+            else:
+                self._send(404, {"error": "not_found"})
+
+        def do_POST(self) -> None:  # noqa: N802
+            if self.path != "/v1/evaluate":
+                self._send(404, {"error": "not_found"})
+                return
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip() != "application/json":
+                self._send(415, {"error": "content_type_must_be_json"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                self._send(400, {"error": "invalid_content_length"})
+                return
+            if length < 1 or length > MAX_REQUEST_BYTES:
+                self._send(413, {"error": "request_size_not_allowed"})
+                return
+            try:
+                response = evaluate_request(json.loads(self.rfile.read(length)), evaluator)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._send(400, {"error": "invalid_json"})
+            except RequestError as error:
+                self._send(422, {"error": "invalid_request", "detail": str(error)})
+            except Exception:
+                self._send(500, {"error": "evaluation_failed"})
+            else:
+                self._send(200, response)
+
+    return Handler
+
+
+def create_server(
+    host: str = "0.0.0.0",
+    port: int = 8080,
+    evaluator: Evaluator | None = None,
+) -> ThreadingHTTPServer:
+    selected = evaluator or FidesWorkerBackend()
+    return ThreadingHTTPServer((host, port), make_handler(selected))
+
+
+def main() -> None:
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8080"))
+    print(f"FIDESlib GPU evaluator listening on {host}:{port}", flush=True)
+    create_server(host, port).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

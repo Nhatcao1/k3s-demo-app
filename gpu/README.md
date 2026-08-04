@@ -11,8 +11,16 @@ GPU before deployment.
 Add masked CI/CD variables `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` to the
 `k3s-demo-app` GitLab project. The GPU job is skipped until both exist.
 
-The worker now contains an in-memory `FidesBackend` with direct `add`,
-`subtract`, `multiply`, and `sum` methods. The pinned FIDESlib API does not
-expose ciphertext file serialization, so remote transport and GPU runtime
-verification remain the next server task. Parameter profiles are left for
-later. This does not change or link the CPU image.
+The image exposes the same `/v1/evaluate` HTTP shape as the CPU evaluator for
+`add`, `subtract`, `multiply`, and `sum`. Its Python adapter only validates and
+stages binary artifacts; all HE operations execute in the C++ FIDESlib worker.
+Because FIDESlib loads GPU evaluation keys using the public key, GPU requests
+also include `public_key`. The API advertises this in `/v1/capabilities`.
+
+No secret key is accepted. The benchmark client owns key generation,
+encryption, result decryption, and correctness checks. This image contains only
+FIDESlib's matching patched OpenFHE and must remain separate from the CPU image.
+
+The transport bridge has dependency-free contract tests, but the CUDA build and
+serialized-artifact compatibility still require the manual GitLab build and an
+NVIDIA-enabled server run.

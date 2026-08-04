@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libomp-dev \
     patch \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # This image contains only FIDESlib and its matching patched OpenFHE. The
@@ -65,5 +66,18 @@ RUN cmake \
 
 RUN cmake --build /src/worker/build --parallel "${BUILD_JOBS}"
 
-# Compile and push only. Execute this image later on a GPU-enabled server.
-ENTRYPOINT ["/src/worker/build/he-gpu-worker"]
+WORKDIR /app
+COPY api /app/api
+
+ENV HE_GPU_WORKER=/src/worker/build/he-gpu-worker \
+    HOST=0.0.0.0 \
+    PORT=8080
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=3)"]
+
+# This image exposes only FIDESlib and its matching patched OpenFHE. It never
+# installs or imports the standard openfhe-python package from the CPU image.
+ENTRYPOINT ["python3", "-m", "api.app"]

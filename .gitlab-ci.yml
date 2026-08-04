@@ -35,7 +35,9 @@ validate-files:
     - test -f openfhe_cpu/runtime.py
     - test -f client/direct_openfhe_cpu_test.py
     - test -f tests/test_app.py
+    - test -f tests/test_gpu_api.py
     - test -f gpu/Dockerfile
+    - test -f gpu/api/app.py
     - test -f gpu/worker/CMakeLists.txt
     - test -f gpu/worker/src/main.cpp
     - test -f gpu/worker/src/fides_backend.cpp

@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+import base64
+import json
+import os
+from pathlib import Path
+import tempfile
+import threading
+import unittest
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+from gpu.api.app import (
+    FidesWorkerBackend,
+    RequestError,
+    create_server,
+    evaluate_request,
+    fides_sum_rotation_indices,
+    write_fides_context_metadata,
+)
+
+
+def encoded(value: bytes) -> str:
+    return base64.b64encode(value).decode("ascii")
+
+
+class FakeGpuEvaluator:
+    backend_name = "gpu-fides-test"
+    serialization = "openfhe_binary_base64"
+    ready = True
+
+    def evaluate(
+        self,
+        operation: str,
+        context: bytes,
+        public_key: bytes,
+        ciphertext_a: bytes,
+        ciphertext_b: bytes | None,
+        evaluation_keys: bytes | None,
+        valid_count: int | None,
+    ) -> bytes:
+        self.received = (
+            operation,
+            context,
+            public_key,
+            ciphertext_a,
+            ciphertext_b,
+            evaluation_keys,
+            valid_count,
+        )
+        return b"gpu-result"
+
+
+def primitive_payload(operation: str = "add") -> dict[str, object]:
+    payload: dict[str, object] = {
+        "operation": operation,
+        "context": encoded(b"context"),
+        "public_key": encoded(b"public-key"),
+        "ciphertext_a": encoded(b"left"),
+        "ciphertext_b": encoded(b"right"),
+    }
+    if operation == "multiply":
+        payload["evaluation_keys"] = encoded(b"mult-keys")
+    return payload
+
+
+class GpuContractTests(unittest.TestCase):
+    def test_add_requires_and_passes_public_key(self) -> None:
+        evaluator = FakeGpuEvaluator()
+        response = evaluate_request(primitive_payload(), evaluator)
+        self.assertEqual(
+            evaluator.received,
+            ("add", b"context", b"public-key", b"left", b"right", None, None),
+        )
+        self.assertEqual(base64.b64decode(response["ciphertext"]), b"gpu-result")
+
+    def test_missing_public_key_is_rejected(self) -> None:
+        payload = primitive_payload()
+        del payload["public_key"]
+        with self.assertRaisesRegex(RequestError, "public_key"):
+            evaluate_request(payload, FakeGpuEvaluator())
+
+    def test_secret_key_is_rejected(self) -> None:
+        payload = primitive_payload()
+        payload["secret_key"] = encoded(b"never-send-this")
+        with self.assertRaisesRegex(RequestError, "unexpected fields"):
+            evaluate_request(payload, FakeGpuEvaluator())
+
+    def test_sum_uses_fides_rotation_keys(self) -> None:
+        self.assertEqual(fides_sum_rotation_indices(8), [1, 2, 3, 4])
+        self.assertEqual(
+            fides_sum_rotation_indices(17), [1, 2, 3, 4, 8, 12, 16]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            context_path = Path(directory) / "context.bin"
+            write_fides_context_metadata(context_path, "sum", 17, 0)
+            metadata = Path(str(context_path) + ".dev").read_text(encoding="utf-8")
+        self.assertIn("RotationIndexes: { 1 2 3 4 8 12 16 }", metadata)
+        self.assertIn("KeyDist: 1", metadata)
+
+    def test_worker_adapter_stages_artifacts_and_reads_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            worker = Path(directory) / "fake-worker"
+            worker.write_text(
+                "#!/bin/sh\n"
+                "set -eu\n"
+                "output=\n"
+                "while [ $# -gt 0 ]; do\n"
+                "  if [ \"$1\" = --output ]; then output=$2; fi\n"
+                "  shift 2\n"
+                "done\n"
+                "printf gpu-worker-result > \"$output\"\n",
+                encoding="utf-8",
+            )
+            os.chmod(worker, 0o700)
+            backend = FidesWorkerBackend(str(worker), device=0)
+            result = backend.evaluate(
+                "add", b"context", b"public", b"left", b"right", None, None
+            )
+        self.assertEqual(result, b"gpu-worker-result")
+
+
+class GpuHttpTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.server = create_server("127.0.0.1", 0, FakeGpuEvaluator())
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.base_url = f"http://127.0.0.1:{self.server.server_port}"
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+
+    def test_capabilities_describe_public_key_boundary(self) -> None:
+        with urlopen(self.base_url + "/v1/capabilities", timeout=2) as response:
+            payload = json.load(response)
+        self.assertEqual(payload["backend"], "gpu-fides-test")
+        self.assertTrue(payload["public_key_required_by_api"])
+        self.assertFalse(payload["secret_key_required_by_api"])
+
+    def test_http_rejects_secret_key(self) -> None:
+        payload = primitive_payload()
+        payload["secret_key"] = encoded(b"secret")
+        request = Request(
+            self.base_url + "/v1/evaluate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(request, timeout=2)
+        self.assertEqual(caught.exception.code, 422)
+        caught.exception.close()
+
+
+if __name__ == "__main__":
+    unittest.main()
