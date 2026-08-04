@@ -13,7 +13,12 @@ class OpenFHEBackendError(ValueError):
 
 
 class OpenFHEPythonBackend:
-    """Deserialize one request and call OpenFHE primitives directly."""
+    """Deserialize one request and call OpenFHE primitives directly.
+
+    Keep this class focused on ciphertext evaluation. Context/key creation,
+    encryption, decryption, and workload-specific parameter selection belong
+    to the trusted client, not this secretless evaluator.
+    """
 
     backend_name = "cpu-openfhe"
     serialization = "openfhe_binary_base64"
@@ -29,22 +34,22 @@ class OpenFHEPythonBackend:
 
     @staticmethod
     def add(context: Any, left: Any, right: Any) -> Any:
-        """Ciphertext + ciphertext via OpenFHE EvalAdd."""
+        """Ciphertext + ciphertext; this operation consumes no depth."""
         return context.EvalAdd(left, right)
 
     @staticmethod
     def subtract(context: Any, left: Any, right: Any) -> Any:
-        """Ciphertext - ciphertext via OpenFHE EvalSub."""
+        """Ciphertext - ciphertext; this operation consumes no depth."""
         return context.EvalSub(left, right)
 
     @staticmethod
     def multiply(context: Any, left: Any, right: Any) -> Any:
-        """Ciphertext * ciphertext via OpenFHE EvalMult."""
+        """Ciphertext * ciphertext; requires multiplication evaluation keys."""
         return context.EvalMult(left, right)
 
     @staticmethod
     def sum(context: Any, encrypted: Any, valid_count: int) -> Any:
-        """Reduce one packed ciphertext via OpenFHE EvalSum."""
+        """Reduce valid packed slots; requires rotation/SUM evaluation keys."""
         return context.EvalSum(encrypted, valid_count)
 
     @staticmethod
@@ -63,14 +68,19 @@ class OpenFHEPythonBackend:
         evaluation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
-        """Evaluate serialized artifacts and return one serialized ciphertext."""
+        """Run the serialized transport boundary for one HE operation.
+
+        The order is: load context -> load only required evaluation keys ->
+        load ciphertexts -> call one function above -> serialize ciphertext.
+        """
         if not self.ready:
             raise RuntimeError("OpenFHE-Python is not installed")
 
         import openfhe
 
-        # OpenFHE uses process-global context and key registries. Only one
-        # request may load artifacts at a time.
+        # OpenFHE uses process-global context and evaluation-key registries.
+        # Serializing this section prevents concurrent requests from mixing
+        # contexts or keys. Revisit concurrency only with an isolated design.
         with self._lock, tempfile.TemporaryDirectory(prefix="he-evaluate-") as directory:
             root = Path(directory)
             context_path = root / "context.bin"

@@ -91,6 +91,16 @@ Run the dependency-free tests with:
 python3 -m unittest discover -s tests -v
 ```
 
+For a direct CPU check before Docker or K3s, install `requirements.txt` and
+run:
+
+```sh
+python -m client.direct_openfhe_cpu_test
+```
+
+The parameter trade-offs and later optimization checkpoint are recorded in
+`docs/he-parameter-optimization-note.md`.
+
 The older `gateway/`, `he_client/`, and related examples remain as historical
 trusted plaintext/session trial code. They are tested but are not copied into
 the evaluator image.

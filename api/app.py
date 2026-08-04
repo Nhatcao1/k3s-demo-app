@@ -19,6 +19,9 @@ from common.operations import (
 )
 
 
+# This module owns HTTP transport and validation only. Keep OpenFHE function
+# calls in backends/openfhe_python.py so the API contract remains easy to test
+# without installing OpenFHE.
 MAX_ARTIFACT_BYTES = int(os.getenv("MAX_ARTIFACT_BYTES", str(32 * 1024 * 1024)))
 MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(100 * 1024 * 1024)))
 
@@ -69,7 +72,12 @@ def evaluate_request(
     payload: Any,
     evaluator: CiphertextEvaluator,
 ) -> dict[str, Any]:
-    """Validate HTTP data, call the backend, and encode its response."""
+    """Validate encrypted inputs, call the backend, and encode its response.
+
+    Plaintext and secret keys are intentionally absent from the accepted
+    request fields. Add new function-specific request rules in
+    common/operations.py and here before exposing a new backend method.
+    """
     if not isinstance(payload, dict):
         raise RequestError("request body must be a JSON object")
     allowed = {
@@ -124,6 +132,8 @@ def evaluate_request(
     elif "valid_count" in payload:
         raise RequestError(f"{operation} does not accept valid_count")
 
+    # This timer covers the complete backend boundary, including OpenFHE
+    # deserialization, evaluation, and result serialization.
     started = time.perf_counter()
     try:
         result = evaluator.evaluate(
