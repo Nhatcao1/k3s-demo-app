@@ -50,7 +50,7 @@ def run_trial(
     if not isinstance(session_id, str) or not isinstance(bundle, dict):
         raise RuntimeError("encryptor response is missing session_id or bundle")
 
-    evaluated = post_json(add_url, bundle, timeout)
+    evaluated = post_json(add_url, {"operation": "add", **bundle}, timeout)
     ciphertext = evaluated.get("ciphertext")
     if not isinstance(ciphertext, str):
         raise RuntimeError("add API response is missing ciphertext")
@@ -98,7 +98,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--add-url",
-        default="http://127.0.0.1:18080/v1/add",
+        default="http://127.0.0.1:18080/v1/evaluate",
     )
     parser.add_argument("--left", nargs="+", type=float, default=DEFAULT_LEFT)
     parser.add_argument("--right", nargs="+", type=float, default=DEFAULT_RIGHT)

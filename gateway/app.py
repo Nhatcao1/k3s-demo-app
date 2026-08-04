@@ -13,13 +13,6 @@ import time
 from typing import Any, Protocol
 import uuid
 
-from gateway.heir_adjusted_net import (
-    HEIR_TRIAL_WIDTH,
-    HeirAdjustedNetTrial,
-    HeirUnavailableError,
-)
-
-
 MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(1024 * 1024)))
 MAX_VECTOR_LENGTH = int(os.getenv("MAX_VECTOR_LENGTH", "64"))
 MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "32"))
@@ -73,20 +66,6 @@ class GatewayCrypto(Protocol):
 
     def delete_session(self, session_id: str) -> None:
         """Delete a session and all of its ciphertexts."""
-
-
-class HeirTrial(Protocol):
-    @property
-    def available(self) -> bool:
-        """Return whether the isolated HEIR runtime can be loaded."""
-
-    def evaluate(
-        self,
-        income: list[float],
-        expenses: list[float],
-        adjustment: list[float],
-    ) -> dict[str, Any]:
-        """Run the fixed adjusted-net HEIR program."""
 
 
 @dataclass
@@ -381,12 +360,7 @@ class OpenFHEGatewayCrypto:
                 raise RequestError("unknown or expired session")
 
 
-def make_handler(
-    crypto: GatewayCrypto,
-    heir_trial: HeirTrial | None = None,
-) -> type[BaseHTTPRequestHandler]:
-    selected_heir_trial = heir_trial or HeirAdjustedNetTrial()
-
+def make_handler(crypto: GatewayCrypto) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "he-gateway/0.1"
 
@@ -439,11 +413,6 @@ def make_handler(
                         "client_openfhe_required": False,
                         "trusted_gateway": True,
                         "session_ttl_seconds": SESSION_TTL_SECONDS,
-                        "heir": {
-                            "available": selected_heir_trial.available,
-                            "programs": ["adjusted_net_total"],
-                            "trial_width": HEIR_TRIAL_WIDTH,
-                        },
                     },
                 )
             else:
@@ -458,44 +427,6 @@ def make_handler(
 
             try:
                 payload = self._read_json()
-                if self.path == "/v1/heir/adjusted-net":
-                    body = require_object(
-                        payload,
-                        {"income", "expenses", "adjustment"},
-                    )
-                    income = validate_values(body.get("income"))
-                    expenses = validate_values(body.get("expenses"))
-                    adjustment = validate_values(body.get("adjustment"))
-                    if not (
-                        len(income)
-                        == len(expenses)
-                        == len(adjustment)
-                        == HEIR_TRIAL_WIDTH
-                    ):
-                        raise RequestError(
-                            f"HEIR adjusted-net inputs must contain exactly "
-                            f"{HEIR_TRIAL_WIDTH} values"
-                        )
-                    try:
-                        heir_result = selected_heir_trial.evaluate(
-                            income,
-                            expenses,
-                            adjustment,
-                        )
-                    except HeirUnavailableError:
-                        raise
-                    except Exception as error:
-                        self._send_json(
-                            500,
-                            {
-                                "error": "heir_trial_failed",
-                                "detail": str(error),
-                            },
-                        )
-                        return
-                    self._send_json(200, heir_result)
-                    return
-
                 if self.path == "/v1/sessions":
                     body = require_object(
                         payload, {"values", "multiplicative_depth"}
@@ -585,11 +516,6 @@ def make_handler(
                     422,
                     {"error": "invalid_request", "detail": str(error)},
                 )
-            except HeirUnavailableError as error:
-                self._send_json(
-                    503,
-                    {"error": "heir_unavailable", "detail": str(error)},
-                )
             except Exception:
                 self._send_json(500, {"error": "crypto_operation_failed"})
 
@@ -616,12 +542,11 @@ def create_server(
     host: str = "0.0.0.0",
     port: int = 8080,
     crypto: GatewayCrypto | None = None,
-    heir_trial: HeirTrial | None = None,
 ) -> HTTPServer:
     selected_crypto = crypto or OpenFHEGatewayCrypto()
     return HTTPServer(
         (host, port),
-        make_handler(selected_crypto, heir_trial),
+        make_handler(selected_crypto),
     )
 
 

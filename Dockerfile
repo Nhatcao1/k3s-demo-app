@@ -23,9 +23,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY client ./client
-COPY gateway ./gateway
-COPY he_client ./he_client
+COPY api ./api
+COPY common ./common
 
 RUN useradd --create-home --uid 10001 appuser
 USER appuser
@@ -35,4 +34,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD ["python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"]
 
-CMD ["python", "-m", "gateway.app"]
+CMD ["python", "-m", "api.app"]

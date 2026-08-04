@@ -81,33 +81,6 @@ class FakeGatewayCrypto:
         del self.sessions[session_id]
 
 
-class FakeHeirTrial:
-    available = True
-
-    def evaluate(
-        self,
-        income: list[float],
-        expenses: list[float],
-        adjustment: list[float],
-    ) -> dict[str, object]:
-        result = sum(
-            (left - right) * weight
-            for left, right, weight in zip(
-                income,
-                expenses,
-                adjustment,
-                strict=True,
-            )
-        )
-        return {
-            "program": "adjusted_net_total",
-            "scheme": "CKKS",
-            "width": 4,
-            "result": result,
-            "heir_generated": True,
-        }
-
-
 class GatewayClientTests(unittest.TestCase):
     def setUp(self) -> None:
         self.crypto = FakeGatewayCrypto()
@@ -115,7 +88,6 @@ class GatewayClientTests(unittest.TestCase):
             host="127.0.0.1",
             port=0,
             crypto=self.crypto,
-            heir_trial=FakeHeirTrial(),
         )
         self.thread = threading.Thread(
             target=self.server.serve_forever, daemon=True
@@ -159,24 +131,6 @@ class GatewayClientTests(unittest.TestCase):
             ],
         )
         self.assertFalse(payload["client_openfhe_required"])
-        self.assertTrue(payload["heir"]["available"])
-        self.assertEqual(
-            payload["heir"]["programs"],
-            ["adjusted_net_total"],
-        )
-
-    def test_heir_adjusted_net_program(self) -> None:
-        with HEClient(self.base_url) as he:
-            result = he.adjusted_net_total(
-                [120, 150, 180, 200],
-                [80, 90, 110, 130],
-                [1.0, 0.9, 1.1, 1.0],
-            )
-
-        self.assertEqual(result["program"], "adjusted_net_total")
-        self.assertEqual(result["scheme"], "CKKS")
-        self.assertTrue(result["heir_generated"])
-        self.assertEqual(result["result"], 241.0)
 
     def test_operator_expression_uses_one_session(self) -> None:
         with HEClient(self.base_url) as he:

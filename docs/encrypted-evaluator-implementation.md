@@ -1,177 +1,67 @@
-# Encrypted-only evaluator implementation contract
+# Primitive and SUM implementation plan
 
-## Status and first scope
+## Current scope
 
-This document is the binding contract for the next implementation. The
-existing `gateway/` is a trusted plaintext trial and remains operational until
-this replacement passes its tests.
-
-Implement one workload first:
+Develop only these logical operations first:
 
 ```text
-CKKS encrypted vector -> SUM -> encrypted scalar
+add, subtract, multiply, sum
 ```
 
-CPU is mandatory. GPU is a later, separate backend and must not block the CPU
-delivery.
+The shared names live in `common/operations.py` and do not depend on an HE
+library. MIN/MAX, mean, variance, model inference, and other workloads wait.
 
 ## Security boundary
 
-```text
-trusted test client
-  plaintext fixture + secret key
-  -> encrypt
-  -> context + SUM evaluation keys + ciphertext
-                                      |
-                                      v
-secretless evaluator API
-  deserialize -> encrypted SUM -> serialize result ciphertext
-                                      |
-                                      v
-trusted test client
-  decrypt -> compare with plaintext reference -> summary.json
-```
+The trusted client owns plaintext, key generation, encryption, decryption, and
+the accuracy check. The evaluator receives serialized context, operation-
+specific evaluation keys, and ciphertexts. It returns ciphertext only.
 
-Mandatory rules:
+Never send or log plaintext or the secret key.
 
-- plaintext and the secret key never enter an evaluator request;
-- the evaluator image contains no test fixture and writes no request body to
-  logs;
-- context and evaluation keys are not confused with the secret key;
-- the client secret key is generated for the run, kept in memory or an
-  `emptyDir`, and never committed or stored in a Kubernetes Secret;
-- only the trusted client decrypts the final ciphertext;
-- cryptographic parameters come from the reviewed backend profile, not from
-  HTTP fields.
+## Separate backends
 
-## Source changes
+| Backend | Repository/image | HE runtime | Status |
+| --- | --- | --- | --- |
+| CPU | `k3s-demo-app` / `openfhe-evaluator-cpu` | standard `openfhe-python` | primitive + SUM API |
+| GPU | `he-gpu-worker` / CUDA image | FIDESlib + patched OpenFHE | build skeleton; operations pending |
 
-Reuse the existing ciphertext-only prototype rather than creating another
-service framework:
+Standard OpenFHE and FIDESlib's patched OpenFHE must never be installed or
+linked into the same image/process. CPU and GPU exchange only serialized
+inputs/results and run as separate jobs or services.
 
-```text
-api/app.py
-  extend the existing serialized-ciphertext evaluator from add to SUM
+## Development order
 
-client/encrypted_sum_benchmark.py
-  new trusted client: fixture, reference, keygen, encrypt, HTTP call, decrypt
+1. Verify CPU `add`, `subtract`, and `multiply` with ciphertext inputs.
+2. Verify CPU `sum` for one ciphertext batch.
+3. Add trusted-client chunk orchestration: SUM each chunk, then ADD partials.
+4. Run sizes `50k`, `100k`, `500k`, `1m`, then `10m` on the server.
+5. Implement the same four logical operations in the separate FIDESlib worker.
+6. Compare CPU/GPU summaries generated from the same seed and input data.
 
-common/result_contract.py
-  one validator/writer shared by CPU and future GPU benchmark results
+Do not call a CUDA image a GPU benchmark until it executes the FIDESlib
+operation and verifies the decrypted answer.
 
-tests/test_encrypted_sum_api.py
-  request validation and ciphertext-only evaluator contract
-
-tests/test_encrypted_sum_benchmark.py
-  deterministic client orchestration and accuracy gate
-
-Dockerfile.evaluator-cpu
-  evaluator API image; default command starts api.app
-
-Dockerfile.test-client
-  one-shot encrypted smoke and benchmark client
-```
-
-`encryptor/app.py` must not be deployed for this target because it accepts
-plaintext over HTTP. `gateway/app.py` remains historical trial code and is not
-included in the new evaluator image.
-
-## Minimal HTTP contract
-
-Keep the existing health endpoints and add one evaluation endpoint:
+## Minimal API
 
 ```text
-GET  /healthz
-GET  /readyz
-GET  /v1/capabilities
-POST /v1/evaluate/sum
+POST /v1/evaluate
+operation = add | subtract | multiply | sum
 ```
 
-Request fields:
+- `add`, `subtract`: context + two ciphertexts;
+- `multiply`: context + EvalMult keys + two ciphertexts;
+- `sum`: context + automorphism/SUM keys + one ciphertext + `valid_count`.
 
-```json
-{
-  "context": "<base64 OpenFHE context>",
-  "evaluation_keys": "<base64 SUM/rotation keys>",
-  "ciphertext": "<base64 input ciphertext>",
-  "valid_count": 8192,
-  "request_id": "sum-<git-sha>-<seed>-8192"
-}
-```
+The response contains backend, operation, evaluation time, and result
+ciphertext. It contains no plaintext result.
 
-Response fields:
+## Next server gate
 
-```json
-{
-  "request_id": "sum-<git-sha>-<seed>-8192",
-  "workload": "sum",
-  "backend": "cpu",
-  "result_ciphertext": "<base64 output ciphertext>",
-  "evaluation_seconds": 1.23
-}
-```
+Before adding more HE functions:
 
-The response must not contain a plaintext or decrypted result.
-
-## Shared benchmark result
-
-CPU and GPU execute separately but write the same schema to different files:
-
-```text
-benchmark_results/<run-id>/cpu.json
-benchmark_results/<run-id>/gpu.json
-benchmark_results/<run-id>/comparison.md
-```
-
-Required `summary.json` fields:
-
-```text
-run_id, workload, backend, status
-git_commit, image_digest, input_seed, input_count, ciphertext_chunks
-warmup_runs, measured_runs
-setup_seconds, keygen_seconds, encryption_seconds
-evaluation_seconds, decryption_seconds, end_to_end_seconds
-maximum_absolute_error, maximum_relative_error
-peak_host_memory, peak_gpu_memory
-```
-
-Use one warm-up and at least five measured runs. CPU and GPU must use the same
-seed, values, valid count, expected result and accuracy tolerance.
-
-## GitLab CI and images
-
-Add these pipeline jobs:
-
-```text
-test-encrypted-evaluator
-build-openfhe-evaluator-cpu
-build-openfhe-test-client
-```
-
-Default-branch images:
-
-```text
-registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/openfhe-evaluator-cpu:<full-commit-sha>
-registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/openfhe-test-client:<full-commit-sha>
-```
-
-The future GPU image is separate:
-
-```text
-registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/fides-evaluator-gpu:<full-commit-sha>
-```
-
-## Completion gates
-
-The CPU milestone is complete only when:
-
-1. dependency-free API contract tests pass;
-2. the evaluator rejects plaintext, unknown fields and missing evaluation
-   keys;
-3. both images build from one Git commit;
-4. the encrypted client smoke Job succeeds against the K3s evaluator;
-5. the decrypted SUM passes the declared tolerance;
-6. evaluator logs contain no plaintext, secret key or serialized payload;
-7. the CPU benchmark produces a schema-valid `cpu.json`.
-
-GPU implementation starts only after these gates pass.
+- GitLab contract tests pass and the CPU image builds;
+- server client decrypts the four results and checks tolerance;
+- SUM works for one batch, then for chunked `50k` input;
+- no request contains a secret key;
+- CPU and GPU remain separate images/processes.

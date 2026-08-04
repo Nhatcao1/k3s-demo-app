@@ -39,7 +39,6 @@ The Kubernetes Service is named `he-gateway` in the `he-dev` namespace.
 | `he.weighted_sum(x, weights)` | Public-weighted encrypted sum | Encrypted scalar |
 | `he.risk_score(x, weights, bias)` | Weighted sum plus public bias | Encrypted scalar |
 | `value.decrypt()` | Decryption | Python list of numbers |
-| `he.adjusted_net_total(...)` | Fixed HEIR-compiled calculation | Audited scalar and timings |
 
 Binary arithmetic accepts another encrypted vector, a `PublicVector`, or a
 `PublicScalar`. Inputs are non-empty numeric vectors. Vectors used together
@@ -137,28 +136,6 @@ HTTP endpoints:
 
 Ciphertexts are represented to the caller by opaque IDs. The actual OpenFHE
 objects and keys stay inside the gateway process.
-
-## HEIR proof
-
-The gateway also contains one isolated HEIR program:
-
-```text
-SUM((income - expenses) * adjustment)
-```
-
-It accepts three four-value vectors through
-`POST /v1/heir/adjusted-net`. HEIR compiles the complete single-result CKKS
-circuit and uses its own OpenFHE context. Its ciphertexts are not passed to or
-from the generic `openfhe-python` sessions.
-
-Run the proof with:
-
-```sh
-python3 -m client.heir_trial --url http://127.0.0.1:18082
-```
-
-The first call performs compilation and key setup. Later calls reuse the live
-program while the gateway Pod remains running.
 
 ## Current trust model and limits
 

@@ -1,155 +1,90 @@
 # HE application for the K3s lab
 
-This GitLab repository is now the development source for the homomorphic
-encryption application deployed to the K3s lab. The previous counter web
-application remains available in Git history but is no longer built or
-deployed.
+This repository now builds one secretless **CPU OpenFHE evaluator**. The first
+scope is intentionally small:
 
-## Next milestone: encrypted-only evaluator
+- primitives: `add`, `subtract`, `multiply`;
+- reduction: `sum`.
 
-The currently deployed gateway is a trusted functional trial: it receives
-plaintext and keeps secret keys in Pod memory. It is not the target security
-boundary.
+The API accepts serialized CKKS context, evaluation keys when required, and
+ciphertexts. It never accepts plaintext or a secret key and returns only a
+result ciphertext.
 
-The next implementation separates a trusted test client from a secretless
-evaluator. Plaintext and the secret key remain in the client process; the
-evaluator API receives only serialized OpenFHE context, evaluation keys and
-ciphertext and returns ciphertext. See
-[docs/encrypted-evaluator-implementation.md](docs/encrypted-evaluator-implementation.md)
-for the binding implementation checklist, image contract and acceptance gates.
-
-Until that checklist is complete, the existing gateway documentation below
-describes the current trial rather than the encrypted-only target.
-
-See [docs/he-api-trial.md](docs/he-api-trial.md) for the trial architecture,
-API inputs and outputs, Python example, and current trust model.
-
-Current trial:
+## CPU and GPU stay separate
 
 ```text
-HEClient without OpenFHE
-  -> one trusted gateway
-  -> OpenFHE arithmetic and basic encrypted analytics
-  -> explicit result decryption
+k3s-demo-app                         he-gpu-worker
+standard openfhe-python              FIDESlib + its patched OpenFHE
+CPU image/process                    CUDA GPU image/process
 ```
 
-The caller uses a normal Python interface:
+Do not install or link standard OpenFHE and FIDESlib's patched OpenFHE in the
+same image or process. A future GPU implementation must use the same logical
+operation names and serialized job/result contract, but it is built and run
+independently in `he-gpu-worker`. GPU primitive/SUM execution is not claimed
+until that worker actually implements and passes the server tests.
 
-```python
-from he_client import HEClient
+The backend-neutral operation list is in `common/operations.py`. It imports no
+HE library.
 
-with HEClient("http://he-dev.k3s.test") as he:
-    installment = he.encrypt([12, 25, 41])
-    payment = he.encrypt([10, 20, 30])
-
-    difference = installment - payment
-    total = difference.sum()
-    average = difference.mean()
-
-    print(total.decrypt())
-    print(average.decrypt())
-```
-
-Supported primitives are ciphertext `+`, `-`, `*`, `square()`, `sum()`, and
-`mean()`. Binary arithmetic accepts either another ciphertext, a
-`PublicVector`, or a `PublicScalar`. `HEClient` composes those primitives into
-variance, covariance and correlation components, weighted sums, and risk
-scores. The gateway tracks logical vector length internally. It is trusted:
-it receives plaintext and retains session secret keys in memory, which is why
-the caller does not install OpenFHE.
-
-## Python service demonstration
-
-With the gateway forwarded to local port `18082`, run:
-
-```sh
-python3 -m client.boss_demo --url http://127.0.0.1:18082
-```
-
-The demonstration calculates
-`(income - expenses) * adjustment`, then obtains its encrypted sum and mean.
-Only the two final scalar results are decrypted. It compares them with the
-expected plaintext values and prints `"status": "PASS"` within CKKS tolerance.
-The caller does not install OpenFHE.
-
-Run the broader API bench after deploying the matching image:
-
-```sh
-python3 -m client.easy_operations_bench \
-  --url http://127.0.0.1:18082
-```
-
-It verifies public vector/scalar arithmetic, square, variance/covariance/
-correlation components, weighted sum, and risk score against plaintext
-reference values.
-
-## Isolated HEIR trial
-
-The optional HEIR proof compiles one fixed CKKS program:
+## Evaluator API
 
 ```text
-adjusted_net_total = SUM((income - expenses) * adjustment)
+GET  /healthz
+GET  /readyz
+GET  /v1/capabilities
+POST /v1/evaluate
 ```
 
-HEIR owns a separate OpenFHE context; its ciphertexts are never mixed with the
-gateway's `openfhe-python` sessions. The program is compiled and set up lazily
-on its first request, then reused by the gateway process.
+Primitive request:
 
-Run it against the forwarded gateway:
-
-```sh
-python3 -m client.heir_trial --url http://127.0.0.1:18082
+```json
+{
+  "operation": "add",
+  "context": "<base64>",
+  "ciphertext_a": "<base64>",
+  "ciphertext_b": "<base64>"
+}
 ```
 
-The first request can take longer because it includes one-time compilation and
-key setup. The response reports those timings separately from encryption,
-evaluation, and final audit decryption.
+`multiply` also requires `evaluation_keys` containing serialized EvalMult
+keys. A SUM request uses one ciphertext:
+
+```json
+{
+  "operation": "sum",
+  "context": "<base64>",
+  "ciphertext_a": "<base64>",
+  "evaluation_keys": "<base64 serialized automorphism/SUM keys>",
+  "valid_count": 8192,
+  "request_id": "optional-run-id"
+}
+```
+
+For data larger than one CKKS batch, the trusted client encrypts chunks, calls
+`sum` for each chunk, then combines the encrypted partial scalars with `add`.
 
 ## GitLab pipeline
 
-Every pipeline validates files and runs dependency-free contract tests. A
-commit on the default branch also builds and pushes the deployable gateway
-container image:
+Contract tests require no HE installation. On the default branch, GitLab CI
+builds and pushes:
 
 ```text
-registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/openfhe-gateway:<full-commit-sha>
+registry.gitlab.com/nhatcao99uetwork/k3s-demo-app/openfhe-evaluator-cpu:<full-commit-sha>
 ```
 
-The immutable GitLab application commit is the image tag promoted by the
-GitOps repository. No Docker Hub credential or manual server build is needed
-for the K3s lab. The image defaults to `python -m gateway.app`; Kubernetes
-does not need to replace an unrelated application command.
+The image contains only standard `openfhe-python` and starts `python -m
+api.app`. FIDESlib is not copied into this image.
 
-## Local contract tests
-
-These tests use fake cryptography and do not install OpenFHE:
+Run the dependency-free tests with:
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-The actual OpenFHE package is installed when the Ubuntu image is built.
+The older `gateway/`, `he_client/`, and related examples remain as historical
+trusted plaintext/session trial code. They are tested but are not copied into
+the evaluator image.
 
-## Repository roles
-
-```text
-k3s-demo-app
-  -> HE source, tests, Dockerfile, GitLab CI
-
-k3s-demo-gitops
-  -> Kustomize manifests, image promotion, Argo CD
-
-he_k8s
-  -> kept separately for the later production-server path
-```
-
-Future HE development for the K3s trial should be committed here first so
-GitLab CI and Argo CD always refer to the same source commit.
-
-## Current limits
-
-- one gateway replica with in-memory sessions;
-- equal-length vectors within a session;
-- bounded CKKS multiplication depth;
-- no TLS or authentication yet;
-- comparison, min/max, rolling windows, and vector maximum are not included.
+See `docs/encrypted-evaluator-implementation.md` for the short implementation
+and server-test plan.

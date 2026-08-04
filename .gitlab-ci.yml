@@ -9,7 +9,7 @@ stages:
   - build
 
 variables:
-  OPENFHE_GATEWAY_IMAGE: "$CI_REGISTRY_IMAGE/openfhe-gateway:$CI_COMMIT_SHA"
+  OPENFHE_CPU_IMAGE: "$CI_REGISTRY_IMAGE/openfhe-evaluator-cpu:$CI_COMMIT_SHA"
   SECRET_DETECTION_ENABLED: "true"
 
 sast:
@@ -24,17 +24,12 @@ validate-files:
   script:
     - test -f Dockerfile
     - test -f requirements.txt
-    - test -f client/boss_demo.py
-    - test -f client/easy_operations_bench.py
-    - test -f client/gateway_trial.py
-    - test -f client/heir_trial.py
-    - test -f gateway/app.py
-    - test -f gateway/heir_adjusted_net.py
-    - test -f he_client/client.py
-    - test -f tests/test_gateway_client.py
-    - test -f tests/test_heir_adjusted_net.py
-    - grep -Fq 'heir_py[python,openfhe]==2026.7.1' requirements.txt
-    - echo "Required OpenFHE and HEIR gateway files exist."
+    - test -f api/app.py
+    - test -f common/operations.py
+    - test -f tests/test_app.py
+    - grep -Fq 'openfhe==1.5.1.0.24.4' requirements.txt
+    - test "$(wc -l < requirements.txt)" -eq 1
+    - echo "Required CPU OpenFHE evaluator files exist."
 
 test-he:
   stage: test
@@ -42,7 +37,7 @@ test-he:
   script:
     - python -m unittest discover -s tests -v
 
-build-openfhe-gateway:
+build-openfhe-evaluator-cpu:
   stage: build
   image:
     name: moby/buildkit:rootless
@@ -58,10 +53,10 @@ build-openfhe-gateway:
         "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" \
         > "$HOME/.docker/config.json"
   script:
-    - echo "Building $OPENFHE_GATEWAY_IMAGE"
+    - echo "Building $OPENFHE_CPU_IMAGE"
     - |
       buildctl-daemonless.sh build \
         --frontend dockerfile.v0 \
         --local context=. \
         --local dockerfile=. \
-        --output type=image,name="$OPENFHE_GATEWAY_IMAGE",push=true
+        --output type=image,name="$OPENFHE_CPU_IMAGE",push=true

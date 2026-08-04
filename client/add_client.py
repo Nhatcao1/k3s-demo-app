@@ -60,6 +60,7 @@ def run_trial(
     with tempfile.TemporaryDirectory(prefix="he-add-client-") as directory:
         root = Path(directory)
         request_payload = {
+            "operation": "add",
             "context": base64.b64encode(
                 _serialize(openfhe, root / "context.bin", context)
             ).decode("ascii"),
@@ -120,7 +121,7 @@ def run_trial(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", default="http://127.0.0.1:8080/v1/add")
+    parser.add_argument("--url", default="http://127.0.0.1:8080/v1/evaluate")
     parser.add_argument("--left", nargs="+", type=float, default=DEFAULT_LEFT)
     parser.add_argument("--right", nargs="+", type=float, default=DEFAULT_RIGHT)
     parser.add_argument("--tolerance", type=float, default=1e-4)
