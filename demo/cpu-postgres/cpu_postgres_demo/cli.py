@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from decimal import Decimal
 import json
 import os
 from typing import Any
@@ -34,6 +35,7 @@ def _print(payload: dict[str, Any]) -> None:
 
 
 def initialize(inputs: DemoInputs, store: SessionStore) -> None:
+    expected_amount = Decimal(sum(inputs.salaries)) * inputs.kpi
     artifacts = create_initial_artifacts(
         inputs.salaries,
         float(inputs.kpi) if inputs.scheme == "ckks" else inputs.kpi_scaled,
@@ -47,6 +49,7 @@ def initialize(inputs: DemoInputs, store: SessionStore) -> None:
         inputs.scheme,
         len(inputs.salaries),
         inputs.kpi_scale,
+        expected_amount,
         artifacts,
     )
     _print(
@@ -115,22 +118,26 @@ def verify_session(inputs: DemoInputs, store: SessionStore) -> None:
         artifacts, inputs.wrap_key, inputs.session_id, inputs.scheme
     )
     if inputs.scheme == "bgv":
-        expected = sum(inputs.salaries) * inputs.kpi_scaled
-        absolute_error = abs(int(observed) - expected)
-        passed = absolute_error == 0
+        expected_scaled = sum(inputs.salaries) * inputs.kpi_scaled
+        passed = int(observed) == expected_scaled
+        decrypted_amount = Decimal(int(observed)) / Decimal(inputs.kpi_scale)
     else:
-        expected = float(sum(inputs.salaries)) * float(inputs.kpi)
-        absolute_error = abs(float(observed) - expected)
-        passed = absolute_error <= max(1.0, abs(expected)) * inputs.tolerance
+        expected_float = float(sum(inputs.salaries)) * float(inputs.kpi)
+        passed = abs(float(observed) - expected_float) <= (
+            max(1.0, abs(expected_float)) * inputs.tolerance
+        )
+        decrypted_amount = Decimal(str(float(observed)))
+    expected_amount = Decimal(sum(inputs.salaries)) * inputs.kpi
+    absolute_error = abs(decrypted_amount - expected_amount)
     if passed:
-        store.mark_verified(inputs.session_id)
+        store.mark_verified(inputs.session_id, decrypted_amount, absolute_error)
     _print(
         {
             "command": "verify",
             "session_id": inputs.session_id,
             "scheme": inputs.scheme,
             "status": "PASS" if passed else "FAIL",
-            "absolute_error": absolute_error,
+            "absolute_error": str(absolute_error),
             "tolerance": inputs.tolerance,
             "decrypted_value_logged": False,
         }

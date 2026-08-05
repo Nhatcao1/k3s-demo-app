@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from decimal import Decimal
 import os
 from typing import Any
 
@@ -64,6 +65,7 @@ class SessionStore:
         scheme: str,
         valid_count: int,
         kpi_scale: int,
+        expected_amount: Decimal,
         artifacts: dict[str, bytes],
     ) -> None:
         validate_initial_artifacts(artifacts)
@@ -72,10 +74,17 @@ class SessionStore:
                 cursor.execute(
                     """
                     INSERT INTO he_demo_sessions
-                        (session_id, scheme, status, valid_count, kpi_scale)
-                    VALUES (%s, %s, 'INITIALIZED', %s, %s)
+                        (session_id, scheme, status, valid_count, kpi_scale,
+                         expected_amount)
+                    VALUES (%s, %s, 'INITIALIZED', %s, %s, %s)
                     """,
-                    (session_id, scheme, valid_count, kpi_scale),
+                    (
+                        session_id,
+                        scheme,
+                        valid_count,
+                        kpi_scale,
+                        expected_amount,
+                    ),
                 )
                 for name, payload in artifacts.items():
                     cursor.execute(
@@ -182,17 +191,24 @@ class SessionStore:
                     )
                 return self._load_many(cursor, session_id, names)
 
-    def mark_verified(self, session_id: str) -> bool:
+    def mark_verified(
+        self,
+        session_id: str,
+        decrypted_amount: Decimal,
+        absolute_error: Decimal,
+    ) -> bool:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
                     UPDATE he_demo_sessions
-                    SET status = 'VERIFIED', updated_at = now()
-                    WHERE session_id = %s AND status = 'MULTIPLIED'
+                    SET status = 'VERIFIED', decrypted_amount = %s,
+                        absolute_error = %s, updated_at = now()
+                    WHERE session_id = %s
+                      AND status IN ('MULTIPLIED', 'VERIFIED')
                     RETURNING session_id
                     """,
-                    (session_id,),
+                    (decrypted_amount, absolute_error, session_id),
                 )
                 changed = cursor.fetchone() is not None
                 if changed:
@@ -213,6 +229,7 @@ class SessionStore:
                 cursor.execute(
                     """
                     SELECT scheme, status, valid_count, kpi_scale,
+                           expected_amount, decrypted_amount, absolute_error,
                            created_at, updated_at
                     FROM he_demo_sessions WHERE session_id = %s
                     """,
@@ -240,8 +257,13 @@ class SessionStore:
                     "status": row[1],
                     "valid_count": row[2],
                     "kpi_scale": row[3],
-                    "created_at": row[4].isoformat(),
-                    "updated_at": row[5].isoformat(),
+                    "expected_amount": None if row[4] is None else str(row[4]),
+                    "decrypted_amount": (
+                        None if row[5] is None else str(row[5])
+                    ),
+                    "absolute_error": None if row[6] is None else str(row[6]),
+                    "created_at": row[7].isoformat(),
+                    "updated_at": row[8].isoformat(),
                     "artifacts": artifacts,
                 }
 
