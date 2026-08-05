@@ -59,17 +59,23 @@ class SessionStore:
         return psycopg.connect(self.conninfo)
 
     def create_session(
-        self, session_id: str, valid_count: int, artifacts: dict[str, bytes]
+        self,
+        session_id: str,
+        scheme: str,
+        valid_count: int,
+        kpi_scale: int,
+        artifacts: dict[str, bytes],
     ) -> None:
         validate_initial_artifacts(artifacts)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    INSERT INTO he_demo_sessions (session_id, status, valid_count)
-                    VALUES (%s, 'INITIALIZED', %s)
+                    INSERT INTO he_demo_sessions
+                        (session_id, scheme, status, valid_count, kpi_scale)
+                    VALUES (%s, %s, 'INITIALIZED', %s, %s)
                     """,
-                    (session_id, valid_count),
+                    (session_id, scheme, valid_count, kpi_scale),
                 )
                 for name, payload in artifacts.items():
                     cursor.execute(
@@ -206,7 +212,8 @@ class SessionStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT status, valid_count, created_at, updated_at
+                    SELECT scheme, status, valid_count, kpi_scale,
+                           created_at, updated_at
                     FROM he_demo_sessions WHERE session_id = %s
                     """,
                     (session_id,),
@@ -229,12 +236,20 @@ class SessionStore:
                 ]
                 return {
                     "session_id": session_id,
-                    "status": row[0],
-                    "valid_count": row[1],
-                    "created_at": row[2].isoformat(),
-                    "updated_at": row[3].isoformat(),
+                    "scheme": row[0],
+                    "status": row[1],
+                    "valid_count": row[2],
+                    "kpi_scale": row[3],
+                    "created_at": row[4].isoformat(),
+                    "updated_at": row[5].isoformat(),
                     "artifacts": artifacts,
                 }
+
+    def artifacts(self, session_id: str, names: Iterable[str]) -> dict[str, bytes]:
+        """Load named artifacts for a trusted demo command."""
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                return self._load_many(cursor, session_id, names)
 
     @staticmethod
     def _load_one(cursor: Any, session_id: str, name: str) -> bytes:

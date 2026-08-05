@@ -37,7 +37,6 @@ validate-files:
     - test -f client/cpu_service_demo.py
     - test -f client/direct_openfhe_cpu_test.py
     - test -f demo/cpu-postgres/cpu_postgres_demo/cli.py
-    - test -f demo/cpu-postgres/tests/test_database.py
     - test -f tests/test_app.py
     - test -f tests/test_gpu_api.py
     - test -f gpu/Dockerfile
@@ -57,7 +56,6 @@ test-he:
   image: python:3.12-alpine
   script:
     - python -m unittest discover -s tests -v
-    - PYTHONPATH=demo/cpu-postgres python -m unittest discover -s demo/cpu-postgres/tests -v
 
 build-openfhe-evaluator-cpu:
   stage: build

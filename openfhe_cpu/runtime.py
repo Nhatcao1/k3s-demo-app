@@ -19,6 +19,7 @@ FIRST_MOD_SIZE = 60
 SCALING_MOD_SIZE = 50
 RING_DIMENSION = 16384
 BATCH_SIZE = 8192
+BGV_PLAINTEXT_MODULUS = 1125899903827969
 
 
 def create_trial_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
@@ -51,6 +52,34 @@ def create_trial_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
     # Multiplication/relinearization material for EvalMult.
     context.EvalMultKeyGen(keys.secretKey)
     # Rotation material for packed-slot EvalSum.
+    context.EvalSumKeyGen(keys.secretKey)
+    return context, keys
+
+
+def create_context_and_keys(
+    openfhe_module: Any,
+    scheme: str,
+    bgv_plaintext_modulus: int = BGV_PLAINTEXT_MODULUS,
+) -> tuple[Any, Any]:
+    """Create one small CKKS or BGV demo context and its keys."""
+    if scheme == "ckks":
+        return create_trial_context_and_keys(openfhe_module)
+    if scheme != "bgv":
+        raise ValueError("scheme must be ckks or bgv")
+
+    of = openfhe_module
+    parameters = of.CCParamsBGVRNS()
+    parameters.SetPlaintextModulus(bgv_plaintext_modulus)
+    parameters.SetMultiplicativeDepth(MULTIPLICATIVE_DEPTH)
+    parameters.SetSecurityLevel(of.HEStd_128_classic)
+    parameters.SetBatchSize(BATCH_SIZE)
+
+    context = of.GenCryptoContext(parameters)
+    for feature in (of.PKE, of.KEYSWITCH, of.LEVELEDSHE, of.ADVANCEDSHE):
+        context.Enable(feature)
+
+    keys = context.KeyGen()
+    context.EvalMultKeyGen(keys.secretKey)
     context.EvalSumKeyGen(keys.secretKey)
     return context, keys
 

@@ -7,7 +7,7 @@ import tempfile
 from typing import Any, Sequence
 
 from backends.openfhe_python import OpenFHEPythonBackend
-from openfhe_cpu.runtime import create_trial_context_and_keys
+from openfhe_cpu.runtime import create_context_and_keys
 
 from .artifacts import (
     CONTEXT,
@@ -32,21 +32,31 @@ def _serialize(openfhe: Any, path: Path, value: Any) -> bytes:
 
 
 def create_initial_artifacts(
-    salaries: Sequence[float],
-    kpi: float,
+    salaries: Sequence[int],
+    kpi: float | int,
     wrapping_key: bytes,
     session_id: str,
+    scheme: str,
+    bgv_plaintext_modulus: int,
 ) -> dict[str, bytes]:
     try:
         import openfhe
     except (ImportError, OSError) as error:
         raise CryptoError("OpenFHE-Python is not available") from error
 
-    context, keys = create_trial_context_and_keys(openfhe)
-    salary_plaintext = context.MakeCKKSPackedPlaintext(list(salaries))
-    # Repeat the KPI across the active slots so the first valid aggregate slot
-    # is multiplied without exposing the KPI to the evaluator Job.
-    kpi_plaintext = context.MakeCKKSPackedPlaintext([float(kpi)] * len(salaries))
+    context, keys = create_context_and_keys(
+        openfhe, scheme, bgv_plaintext_modulus
+    )
+    if scheme == "ckks":
+        salary_plaintext = context.MakeCKKSPackedPlaintext(
+            [float(value) for value in salaries]
+        )
+        kpi_plaintext = context.MakeCKKSPackedPlaintext(
+            [float(kpi)] * len(salaries)
+        )
+    else:
+        salary_plaintext = context.MakePackedPlaintext(list(salaries))
+        kpi_plaintext = context.MakePackedPlaintext([int(kpi)] * len(salaries))
     salary_ciphertext = context.Encrypt(keys.publicKey, salary_plaintext)
     kpi_ciphertext = context.Encrypt(keys.publicKey, kpi_plaintext)
 
@@ -105,8 +115,8 @@ def evaluate_multiply(artifacts: dict[str, bytes]) -> bytes:
 
 
 def decrypt_final_result(
-    artifacts: dict[str, bytes], wrapping_key: bytes, session_id: str
-) -> float:
+    artifacts: dict[str, bytes], wrapping_key: bytes, session_id: str, scheme: str
+) -> float | int:
     try:
         import openfhe
     except (ImportError, OSError) as error:
@@ -142,4 +152,6 @@ def decrypt_final_result(
 
         plaintext = context.Decrypt(secret_key, ciphertext)
         plaintext.SetLength(1)
-        return float(plaintext.GetRealPackedValue()[0])
+        if scheme == "ckks":
+            return float(plaintext.GetRealPackedValue()[0])
+        return int(plaintext.GetPackedValue()[0])

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
-import sys
 from typing import Any
 
 from .artifacts import (
@@ -16,8 +16,10 @@ from .artifacts import (
     SALARY_CIPHERTEXT,
     SUM_CIPHERTEXT,
     SUM_EVALUATION_KEYS,
+    WRAPPED_SECRET_KEY,
+    unwrap_secret_key,
 )
-from .config import DemoInputs, parse_session_id
+from .config import DemoInputs, parse_session_id, parse_wrap_key
 from .crypto import (
     create_initial_artifacts,
     decrypt_final_result,
@@ -33,13 +35,25 @@ def _print(payload: dict[str, Any]) -> None:
 
 def initialize(inputs: DemoInputs, store: SessionStore) -> None:
     artifacts = create_initial_artifacts(
-        inputs.salaries, inputs.kpi, inputs.wrap_key, inputs.session_id
+        inputs.salaries,
+        float(inputs.kpi) if inputs.scheme == "ckks" else inputs.kpi_scaled,
+        inputs.wrap_key,
+        inputs.session_id,
+        inputs.scheme,
+        inputs.bgv_plaintext_modulus,
     )
-    store.create_session(inputs.session_id, len(inputs.salaries), artifacts)
+    store.create_session(
+        inputs.session_id,
+        inputs.scheme,
+        len(inputs.salaries),
+        inputs.kpi_scale,
+        artifacts,
+    )
     _print(
         {
             "command": "initialize",
             "session_id": inputs.session_id,
+            "scheme": inputs.scheme,
             "status": "INITIALIZED",
             "salary_count": len(inputs.salaries),
             "plaintext_logged": False,
@@ -97,16 +111,24 @@ def multiply_session(session_id: str, store: SessionStore) -> None:
 
 def verify_session(inputs: DemoInputs, store: SessionStore) -> None:
     artifacts = store.verification_artifacts(inputs.session_id)
-    observed = decrypt_final_result(artifacts, inputs.wrap_key, inputs.session_id)
-    expected = sum(inputs.salaries) * inputs.kpi
-    absolute_error = abs(observed - expected)
-    passed = absolute_error <= inputs.tolerance
+    observed = decrypt_final_result(
+        artifacts, inputs.wrap_key, inputs.session_id, inputs.scheme
+    )
+    if inputs.scheme == "bgv":
+        expected = sum(inputs.salaries) * inputs.kpi_scaled
+        absolute_error = abs(int(observed) - expected)
+        passed = absolute_error == 0
+    else:
+        expected = float(sum(inputs.salaries)) * float(inputs.kpi)
+        absolute_error = abs(float(observed) - expected)
+        passed = absolute_error <= max(1.0, abs(expected)) * inputs.tolerance
     if passed:
         store.mark_verified(inputs.session_id)
     _print(
         {
             "command": "verify",
             "session_id": inputs.session_id,
+            "scheme": inputs.scheme,
             "status": "PASS" if passed else "FAIL",
             "absolute_error": absolute_error,
             "tolerance": inputs.tolerance,
@@ -117,16 +139,44 @@ def verify_session(inputs: DemoInputs, store: SessionStore) -> None:
         raise SystemExit(1)
 
 
+def show_secret_key(session_id: str, wrapping_key: bytes, store: SessionStore) -> None:
+    """Print the raw serialized key only for the explicit lab command."""
+    wrapped = store.artifacts(session_id, (WRAPPED_SECRET_KEY,))[WRAPPED_SECRET_KEY]
+    secret_key = unwrap_secret_key(wrapped, wrapping_key, session_id)
+    _print(
+        {
+            "command": "show-secret-key",
+            "session_id": session_id,
+            "secret_key_base64": base64.b64encode(secret_key).decode("ascii"),
+            "warning": "lab-only raw secret key",
+        }
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("initialize", "sum", "multiply", "verify", "inspect")
+        "command",
+        choices=(
+            "initialize",
+            "sum",
+            "multiply",
+            "verify",
+            "inspect",
+            "show-secret-key",
+        ),
     )
+    parser.add_argument("--unsafe", action="store_true")
     args = parser.parse_args()
     store = SessionStore()
     session_id = parse_session_id(os.environ)
     if args.command == "inspect":
         _print(store.inspect(session_id))
+        return
+    if args.command == "show-secret-key":
+        if not args.unsafe:
+            parser.error("show-secret-key requires --unsafe")
+        show_secret_key(session_id, parse_wrap_key(os.environ), store)
         return
     if args.command == "sum":
         sum_session(session_id, store)
