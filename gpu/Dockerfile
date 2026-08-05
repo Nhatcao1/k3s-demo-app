@@ -57,6 +57,20 @@ RUN cmake --build /src/FIDESlib/build \
       --target install \
       --parallel "${BUILD_JOBS}"
 
+# Build the upstream native example as an isolated CUDA/FIDESlib smoke test.
+# It generates keys, encrypts, evaluates, and decrypts entirely in C++ without
+# using the Python HTTP adapter or cross-runtime serialization bridge.
+RUN cmake \
+      -S /src/FIDESlib/examples/simple \
+      -B /src/FIDESlib/examples/simple/build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
+    && cmake --build /src/FIDESlib/examples/simple/build \
+      --parallel "${BUILD_JOBS}" \
+    && install -m 0755 \
+      /src/FIDESlib/examples/simple/build/simple \
+      /usr/local/bin/fides-simple
+
 COPY worker /src/worker
 
 RUN cmake \
