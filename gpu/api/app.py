@@ -8,6 +8,7 @@ import ctypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -73,6 +74,20 @@ class Evaluator(Protocol):
         evaluation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes: ...
+
+
+class DemoEvaluator(Protocol):
+    backend_name: str
+
+    @property
+    def ready(self) -> bool: ...
+
+    def evaluate(
+        self,
+        operation: str,
+        values_a: list[float],
+        values_b: list[float] | None,
+    ) -> list[float]: ...
 
 
 def fides_sum_rotation_indices(valid_count: int) -> list[int]:
@@ -194,6 +209,75 @@ class FidesWorkerBackend:
             return paths["output"].read_bytes()
 
 
+class NativeDemoBackend:
+    """Run an end-to-end FIDESlib operation in one native C++ process."""
+
+    backend_name = "gpu-fideslib-native-demo"
+    _lock = threading.Lock()
+
+    def __init__(self, worker: str | None = None) -> None:
+        self.worker = Path(
+            worker or os.getenv("HE_GPU_DEMO_WORKER", "/opt/he-gpu-demo")
+        )
+        self.timeout = float(os.getenv("HE_GPU_DEMO_TIMEOUT_SECONDS", "600"))
+
+    @property
+    def ready(self) -> bool:
+        return self.worker.is_file() and os.access(self.worker, os.X_OK) and Path(
+            "/dev/nvidiactl"
+        ).exists()
+
+    def evaluate(
+        self,
+        operation: str,
+        values_a: list[float],
+        values_b: list[float] | None,
+    ) -> list[float]:
+        command = [
+            str(self.worker),
+            "--operation",
+            operation,
+            "--left",
+            ",".join(format(value, ".17g") for value in values_a),
+        ]
+        if values_b is not None:
+            command.extend(
+                ("--right", ",".join(format(value, ".17g") for value in values_b))
+            )
+
+        try:
+            with self._lock:
+                completed = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout,
+                )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            LOGGER.exception("native FIDESlib demo could not complete")
+            raise RuntimeError("native FIDESlib demo could not complete") from error
+        if completed.returncode != 0:
+            worker_error = (completed.stderr or "<no stderr>").strip()
+            LOGGER.error(
+                "native FIDESlib demo exited with code %s: %s",
+                completed.returncode,
+                worker_error[:8192],
+            )
+            raise RequestError("native FIDESlib demo rejected the request")
+        try:
+            payload = json.loads(completed.stdout)
+            values = payload["values"]
+        except (json.JSONDecodeError, KeyError, TypeError) as error:
+            raise RuntimeError("native FIDESlib demo returned invalid output") from error
+        if not isinstance(values, list) or not all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            for value in values
+        ):
+            raise RuntimeError("native FIDESlib demo returned invalid values")
+        return [float(value) for value in values]
+
+
 def _decode(payload: dict[str, Any], name: str) -> bytes:
     value = payload.get(name)
     if not isinstance(value, str) or not value:
@@ -267,7 +351,68 @@ def evaluate_request(payload: Any, evaluator: Evaluator) -> dict[str, Any]:
     return response
 
 
-def make_handler(evaluator: Evaluator) -> type[BaseHTTPRequestHandler]:
+def _demo_values(payload: dict[str, Any], name: str) -> list[float]:
+    values = payload.get(name)
+    if not isinstance(values, list) or not 1 <= len(values) <= 4096:
+        raise RequestError(f"{name} must contain between 1 and 4096 numbers")
+    result: list[float] = []
+    for value in values:
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+        ):
+            raise RequestError(f"{name} must contain only finite numbers")
+        result.append(float(value))
+    return result
+
+
+def evaluate_demo_request(
+    payload: Any, evaluator: DemoEvaluator
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise RequestError("request body must be a JSON object")
+    allowed = {"operation", "values_a", "values_b", "request_id"}
+    unexpected = sorted(set(payload) - allowed)
+    if unexpected:
+        raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
+
+    operation = payload.get("operation")
+    if operation not in OPERATIONS:
+        raise RequestError(f"operation must be one of: {', '.join(OPERATIONS)}")
+    values_a = _demo_values(payload, "values_a")
+    values_b = None
+    if operation == "sum":
+        if "values_b" in payload:
+            raise RequestError("sum does not accept values_b")
+    else:
+        values_b = _demo_values(payload, "values_b")
+        if len(values_a) != len(values_b):
+            raise RequestError("values_a and values_b must have equal length")
+
+    request_id = payload.get("request_id")
+    if request_id is not None and (
+        not isinstance(request_id, str) or not request_id or len(request_id) > 128
+    ):
+        raise RequestError("request_id must be a non-empty string of at most 128 characters")
+
+    started = time.perf_counter()
+    values = evaluator.evaluate(operation, values_a, values_b)
+    response: dict[str, Any] = {
+        "operation": operation,
+        "backend": evaluator.backend_name,
+        "values": values,
+        "evaluation_seconds": time.perf_counter() - started,
+        "demo_trust_model": "plaintext enters the GPU service",
+    }
+    if request_id is not None:
+        response["request_id"] = request_id
+    return response
+
+
+def make_handler(
+    evaluator: Evaluator, demo_evaluator: DemoEvaluator
+) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "he-fides-evaluator/0.1"
 
@@ -283,9 +428,10 @@ def make_handler(evaluator: Evaluator) -> type[BaseHTTPRequestHandler]:
             if self.path == "/healthz":
                 self._send(200, {"status": "ok"})
             elif self.path == "/readyz":
+                ready = evaluator.ready and demo_evaluator.ready
                 self._send(
-                    200 if evaluator.ready else 503,
-                    {"status": "ready" if evaluator.ready else "not_ready"},
+                    200 if ready else 503,
+                    {"status": "ready" if ready else "not_ready"},
                 )
             elif self.path == "/v1/capabilities":
                 self._send(200, {
@@ -295,12 +441,14 @@ def make_handler(evaluator: Evaluator) -> type[BaseHTTPRequestHandler]:
                     "serialization": evaluator.serialization,
                     "public_key_required_by_api": True,
                     "secret_key_required_by_api": False,
+                    "native_demo_endpoint": "/v1/demo/evaluate",
+                    "native_demo_input": "plaintext numeric arrays",
                 })
             else:
                 self._send(404, {"error": "not_found"})
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path != "/v1/evaluate":
+            if self.path not in ("/v1/evaluate", "/v1/demo/evaluate"):
                 self._send(404, {"error": "not_found"})
                 return
             if self.headers.get("Content-Type", "").split(";", 1)[0].strip() != "application/json":
@@ -315,7 +463,12 @@ def make_handler(evaluator: Evaluator) -> type[BaseHTTPRequestHandler]:
                 self._send(413, {"error": "request_size_not_allowed"})
                 return
             try:
-                response = evaluate_request(json.loads(self.rfile.read(length)), evaluator)
+                payload = json.loads(self.rfile.read(length))
+                response = (
+                    evaluate_demo_request(payload, demo_evaluator)
+                    if self.path == "/v1/demo/evaluate"
+                    else evaluate_request(payload, evaluator)
+                )
             except (json.JSONDecodeError, UnicodeDecodeError):
                 self._send(400, {"error": "invalid_json"})
             except RequestError as error:
@@ -333,17 +486,26 @@ def create_server(
     host: str = "0.0.0.0",
     port: int = 8080,
     evaluator: Evaluator | None = None,
+    demo_evaluator: DemoEvaluator | None = None,
 ) -> ThreadingHTTPServer:
     selected = evaluator or FidesWorkerBackend()
-    return ThreadingHTTPServer((host, port), make_handler(selected))
+    selected_demo = demo_evaluator or NativeDemoBackend()
+    return ThreadingHTTPServer((host, port), make_handler(selected, selected_demo))
 
 
 def main() -> None:
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8080"))
     evaluator = FidesWorkerBackend()
+    demo_evaluator = NativeDemoBackend()
     try:
         device_count = check_gpu_runtime(evaluator.worker)
+        if not demo_evaluator.worker.is_file() or not os.access(
+            demo_evaluator.worker, os.X_OK
+        ):
+            raise RuntimeError(
+                f"native FIDESlib demo is not executable: {demo_evaluator.worker}"
+            )
     except Exception:
         LOGGER.exception("GPU runtime startup check failed")
         raise
@@ -352,7 +514,7 @@ def main() -> None:
         f"FIDESlib evaluator listening on {host}:{port}",
         flush=True,
     )
-    create_server(host, port, evaluator).serve_forever()
+    create_server(host, port, evaluator, demo_evaluator).serve_forever()
 
 
 if __name__ == "__main__":

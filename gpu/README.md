@@ -24,3 +24,33 @@ FIDESlib's matching patched OpenFHE and must remain separate from the CPU image.
 The transport bridge has dependency-free contract tests, but the CUDA build and
 serialized-artifact compatibility still require the manual GitLab build and an
 NVIDIA-enabled server run.
+
+## Native plaintext demo endpoint
+
+`POST /v1/demo/evaluate` is the deliberately small GPU correctness demo. It
+accepts numeric arrays, then `/src/worker/build/he-gpu-demo` performs context
+creation, key generation, encryption, `add`, `subtract`, `multiply`, or `sum`,
+and decryption entirely in C++ with FIDESlib. Python only carries the HTTP JSON;
+it does not import OpenFHE or perform HE work.
+
+Example:
+
+```json
+{"operation":"sum","values_a":[12,7,8,9]}
+```
+
+This is a trusted plaintext demo, not the final secretless boundary. The
+existing `/v1/evaluate` encrypted-artifact endpoint remains separate for later
+serialization work.
+
+After deploying `gpu-latest`, forward the GPU Service and run the four tiny
+correctness cases. The client uses only Python's standard HTTP library and
+does not install or import OpenFHE:
+
+```sh
+kubectl -n he-dev port-forward service/he-evaluator-gpu 18080:8080
+python3 gpu/client/simple_test.py --url http://127.0.0.1:18080
+```
+
+Expected results are `add=[13,9,11,13]`, `subtract=[11,5,5,5]`,
+`multiply=[12,14,24,36]`, and `sum=[36]`.

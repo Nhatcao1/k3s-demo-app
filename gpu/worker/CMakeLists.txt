@@ -19,27 +19,36 @@ add_executable(
   src/fides_backend.cpp
   src/main.cpp
 )
-target_include_directories(
-  he-gpu-worker
-  PRIVATE
-    src
-    "${OpenFHE_INCLUDE}"
-    "${OpenFHE_INCLUDE}/third-party/include"
-    "${OpenFHE_INCLUDE}/core"
-    "${OpenFHE_INCLUDE}/pke"
-    "${OpenFHE_INCLUDE}/binfhe"
-    "${CUDAToolkit_INCLUDE_DIRS}"
+
+add_executable(
+  he-gpu-demo
+  src/demo_main.cpp
+  src/fides_backend.cpp
 )
-target_link_libraries(
-  he-gpu-worker
-  PRIVATE
-    fideslib::fideslib
-    OPENFHEpke_static
-    OPENFHEbinfhe_static
-    OPENFHEcore_static
-    CUDA::cudart
-    CUDA::cuda_driver
-    OpenMP::OpenMP_CXX
-    Threads::Threads
-    "${CMAKE_DL_LIBS}"
-)
+
+foreach(target he-gpu-worker he-gpu-demo)
+  target_include_directories(
+    ${target}
+    PRIVATE
+      src
+      "${OpenFHE_INCLUDE}"
+      "${OpenFHE_INCLUDE}/third-party/include"
+      "${OpenFHE_INCLUDE}/core"
+      "${OpenFHE_INCLUDE}/pke"
+      "${OpenFHE_INCLUDE}/binfhe"
+      "${CUDAToolkit_INCLUDE_DIRS}"
+  )
+  target_link_libraries(
+    ${target}
+    PRIVATE
+      fideslib::fideslib
+      OPENFHEpke_static
+      OPENFHEbinfhe_static
+      OPENFHEcore_static
+      CUDA::cudart
+      CUDA::cuda_driver
+      OpenMP::OpenMP_CXX
+      Threads::Threads
+      "${CMAKE_DL_LIBS}"
+  )
+endforeach()

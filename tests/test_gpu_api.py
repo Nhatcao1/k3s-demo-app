@@ -12,8 +12,10 @@ from urllib.request import Request, urlopen
 
 from gpu.api.app import (
     FidesWorkerBackend,
+    NativeDemoBackend,
     RequestError,
     create_server,
+    evaluate_demo_request,
     evaluate_request,
     fides_sum_rotation_indices,
     write_fides_context_metadata,
@@ -49,6 +51,27 @@ class FakeGpuEvaluator:
             valid_count,
         )
         return b"gpu-result"
+
+
+class FakeNativeDemoEvaluator:
+    backend_name = "gpu-fides-native-test"
+    ready = True
+
+    def evaluate(
+        self,
+        operation: str,
+        values_a: list[float],
+        values_b: list[float] | None,
+    ) -> list[float]:
+        self.received = (operation, values_a, values_b)
+        if operation == "sum":
+            return [sum(values_a)]
+        assert values_b is not None
+        if operation == "add":
+            return [left + right for left, right in zip(values_a, values_b)]
+        if operation == "subtract":
+            return [left - right for left, right in zip(values_a, values_b)]
+        return [left * right for left, right in zip(values_a, values_b)]
 
 
 def primitive_payload(operation: str = "add") -> dict[str, object]:
@@ -135,10 +158,41 @@ class GpuContractTests(unittest.TestCase):
                     )
         self.assertIn("precise-worker-failure", "\n".join(captured.output))
 
+    def test_native_demo_request_is_plaintext_but_executes_in_native_backend(self) -> None:
+        evaluator = FakeNativeDemoEvaluator()
+        response = evaluate_demo_request(
+            {
+                "operation": "add",
+                "values_a": [12, 7, 8, 9],
+                "values_b": [1, 2, 3, 4],
+            },
+            evaluator,
+        )
+        self.assertEqual(
+            evaluator.received,
+            ("add", [12.0, 7.0, 8.0, 9.0], [1.0, 2.0, 3.0, 4.0]),
+        )
+        self.assertEqual(response["values"], [13.0, 9.0, 11.0, 13.0])
+
+    def test_native_demo_adapter_reads_cpp_json_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            worker = Path(directory) / "fake-demo-worker"
+            worker.write_text(
+                "#!/bin/sh\nprintf '%s\\n' "
+                "'{\"operation\":\"sum\",\"values\":[36.0]}'\n",
+                encoding="utf-8",
+            )
+            os.chmod(worker, 0o700)
+            backend = NativeDemoBackend(str(worker))
+            result = backend.evaluate("sum", [12.0, 7.0, 8.0, 9.0], None)
+        self.assertEqual(result, [36.0])
+
 
 class GpuHttpTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.server = create_server("127.0.0.1", 0, FakeGpuEvaluator())
+        self.server = create_server(
+            "127.0.0.1", 0, FakeGpuEvaluator(), FakeNativeDemoEvaluator()
+        )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base_url = f"http://127.0.0.1:{self.server.server_port}"
@@ -168,6 +222,20 @@ class GpuHttpTests(unittest.TestCase):
             urlopen(request, timeout=2)
         self.assertEqual(caught.exception.code, 422)
         caught.exception.close()
+
+    def test_native_demo_http_sum(self) -> None:
+        request = Request(
+            self.base_url + "/v1/demo/evaluate",
+            data=json.dumps(
+                {"operation": "sum", "values_a": [12, 7, 8, 9]}
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            payload = json.load(response)
+        self.assertEqual(payload["backend"], "gpu-fides-native-test")
+        self.assertEqual(payload["values"], [36.0])
 
 
 if __name__ == "__main__":

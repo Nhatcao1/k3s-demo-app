@@ -87,6 +87,7 @@ WORKDIR /app
 COPY api /app/api
 
 ENV HE_GPU_WORKER=/src/worker/build/he-gpu-worker \
+    HE_GPU_DEMO_WORKER=/src/worker/build/he-gpu-demo \
     HOST=0.0.0.0 \
     PORT=8080
 

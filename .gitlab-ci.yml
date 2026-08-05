@@ -40,8 +40,10 @@ validate-files:
     - test -f tests/test_gpu_api.py
     - test -f gpu/Dockerfile
     - test -f gpu/api/app.py
+    - test -f gpu/client/simple_test.py
     - test -f gpu/worker/CMakeLists.txt
     - test -f gpu/worker/src/main.cpp
+    - test -f gpu/worker/src/demo_main.cpp
     - test -f gpu/worker/src/fides_backend.cpp
     - test -f gpu/worker/src/fides_backend.hpp
     - grep -Fq 'openfhe==1.5.1.0.24.4' requirements.txt
