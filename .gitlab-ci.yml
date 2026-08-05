@@ -61,6 +61,14 @@ build-openfhe-evaluator-cpu:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      changes:
+        - .gitlab-ci.yml
+        - Dockerfile
+        - requirements.txt
+        - api/**/*
+        - backends/**/*
+        - common/**/*
+        - openfhe_cpu/**/*
   before_script:
     - mkdir -p "$HOME/.docker"
     - |
@@ -87,6 +95,10 @@ build-fides-evaluator-gpu:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      changes:
+        - .gitlab-ci.yml
+        - .gitmodules
+        - gpu/**/*
       when: manual
       allow_failure: true
   before_script:
