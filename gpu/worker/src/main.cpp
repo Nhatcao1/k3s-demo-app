@@ -19,6 +19,11 @@
 
 #include "fides_backend.hpp"
 
+// High-level role of this file:
+//   gpu/api/app.py writes one request to temporary files and starts this binary.
+//   main.cpp loads those files, calls one FidesBackend function, and writes the
+//   encrypted result file for the API to return. It does not own HTTP handling
+//   and it never receives a secret key or plaintext input.
 namespace {
 
 using FidesCiphertext = fideslib::Ciphertext<fideslib::DCRTPoly>;
@@ -49,6 +54,8 @@ const std::string& required(
 FidesCiphertext load_ciphertext(
     const std::filesystem::path& path,
     const FidesContext& context) {
+    // Convert the serialized patched-OpenFHE ciphertext into the wrapper that
+    // FIDESlib will load onto the GPU when the selected operation runs.
     CpuCiphertext cpu_ciphertext;
     if (!lbcrypto::Serial::DeserializeFromFile(
             path.string(), cpu_ciphertext, lbcrypto::SerType::BINARY)) {
@@ -72,6 +79,8 @@ void save_ciphertext(
         throw std::runtime_error("FIDESlib produced no GPU ciphertext");
     }
 
+    // Bring the GPU result back into its patched-OpenFHE CPU representation so
+    // the trusted client can deserialize and decrypt the returned ciphertext.
     context->Synchronize();
     result->EnsureLazyCPUCopy();
     auto& cpu_ciphertext = std::any_cast<CpuCiphertext&>(result->cpu);
@@ -97,6 +106,7 @@ void save_ciphertext(
 
 int main(int argc, char** argv) {
     try {
+        // 1. Read file paths and the requested operation from gpu/api/app.py.
         const auto arguments = parse_arguments(argc, argv);
         const auto& operation = required(arguments, "operation");
         const auto& context_path = required(arguments, "context");
@@ -109,6 +119,8 @@ int main(int argc, char** argv) {
             throw std::invalid_argument("unsupported operation");
         }
 
+        // 2. Load the HE context, public key, and only the evaluation keys
+        // required by this operation. The secret key stays with the client.
         FidesContext context;
         if (!fideslib::Serial::DeserializeFromFile(
                 context_path, context, fideslib::BINARY)) {
@@ -136,6 +148,8 @@ int main(int argc, char** argv) {
             }
         }
 
+        // 3. Initialize FIDESlib on the GPU and delegate the HE math to the
+        // deliberately small function layer in fides_backend.cpp.
         context->LoadContext(public_key);
         he_gpu::FidesBackend backend(context);
         const auto left = load_ciphertext(left_path, context);
@@ -155,6 +169,7 @@ int main(int argc, char** argv) {
             }
         }
 
+        // 4. Write one encrypted result for gpu/api/app.py to return over HTTP.
         save_ciphertext(output_path, context, result);
         return 0;
     } catch (const std::exception& error) {
