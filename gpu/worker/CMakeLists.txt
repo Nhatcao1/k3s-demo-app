@@ -7,6 +7,7 @@ project(he-gpu-worker LANGUAGES CXX)
 
 find_package(fideslib REQUIRED CONFIG)
 find_package(OpenFHE 1.5.1 EXACT REQUIRED CONFIG)
+find_package(CUDAToolkit REQUIRED)
 
 set(CMAKE_CXX_COMPILER "${FIDESLIB_CXX_COMPILER}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${FIDESLIB_CXX_FLAGS}")
@@ -25,6 +26,7 @@ target_include_directories(
     "${OpenFHE_INCLUDE}/core"
     "${OpenFHE_INCLUDE}/pke"
     "${OpenFHE_INCLUDE}/binfhe"
+    "${CUDAToolkit_INCLUDE_DIRS}"
 )
 target_link_libraries(
   he-gpu-worker
@@ -33,4 +35,6 @@ target_link_libraries(
     OPENFHEpke_static
     OPENFHEbinfhe_static
     OPENFHEcore_static
+    CUDA::cudart
+    CUDA::cuda_driver
 )
