@@ -35,7 +35,8 @@ RUN cmake \
       -DBUILD_SHARED=OFF \
       -DBUILD_UNITTESTS=OFF \
       -DBUILD_EXAMPLES=OFF \
-      -DBUILD_BENCHMARKS=OFF
+      -DBUILD_BENCHMARKS=OFF \
+      -DGIT_SUBMOD_AUTO=OFF
 
 RUN cmake --build /src/FIDESlib/deps/openfhe-build \
       --parallel "${BUILD_JOBS}" \
