@@ -13,6 +13,7 @@ variables:
   OPENFHE_CPU_LATEST: "docker.io/dockerboi99/he_k8s:cpu-latest"
   FIDES_GPU_IMAGE: "docker.io/dockerboi99/he_k8s:gpu-$CI_COMMIT_SHA"
   FIDES_GPU_LATEST: "docker.io/dockerboi99/he_k8s:gpu-latest"
+  FIDES_GPU_EXAMPLES: "docker.io/dockerboi99/he_k8s:gpu-t4-examples"
   FIDESLIB_ARCH: "75-real"
   BUILD_JOBS: "4"
   SECRET_DETECTION_ENABLED: "true"
@@ -111,7 +112,7 @@ build-fides-evaluator-gpu:
       printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
         "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
   script:
-    - echo "Building $FIDES_GPU_IMAGE and $FIDES_GPU_LATEST for CUDA architecture $FIDESLIB_ARCH"
+    - echo "Building $FIDES_GPU_IMAGE, $FIDES_GPU_LATEST, and $FIDES_GPU_EXAMPLES for CUDA architecture $FIDESLIB_ARCH"
     - |
       buildctl-daemonless.sh build \
         --frontend dockerfile.v0 \
@@ -119,4 +120,4 @@ build-fides-evaluator-gpu:
         --local dockerfile=gpu \
         --opt build-arg:FIDESLIB_ARCH="$FIDESLIB_ARCH" \
         --opt build-arg:BUILD_JOBS="$BUILD_JOBS" \
-        --output "type=image,\"name=$FIDES_GPU_IMAGE,$FIDES_GPU_LATEST\",push=true"
+        --output "type=image,\"name=$FIDES_GPU_IMAGE,$FIDES_GPU_LATEST,$FIDES_GPU_EXAMPLES\",push=true"
