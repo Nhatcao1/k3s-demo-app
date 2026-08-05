@@ -13,7 +13,7 @@ variables:
   OPENFHE_CPU_LATEST: "docker.io/dockerboi99/he_k8s:cpu-latest"
   FIDES_GPU_IMAGE: "docker.io/dockerboi99/he_k8s:gpu-$CI_COMMIT_SHA"
   FIDES_GPU_LATEST: "docker.io/dockerboi99/he_k8s:gpu-latest"
-  FIDESLIB_ARCH: "86-real"
+  FIDESLIB_ARCH: "75-real"
   BUILD_JOBS: "4"
   SECRET_DETECTION_ENABLED: "true"
 

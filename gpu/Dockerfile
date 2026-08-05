@@ -4,7 +4,7 @@ FROM nvidia/cuda:12.9.1-devel-ubuntu24.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG FIDESLIB_ARCH=86-real
+ARG FIDESLIB_ARCH=75-real
 ARG BUILD_JOBS=4
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
