@@ -84,6 +84,7 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
         "add": [left + right for left, right in zip(LEFT, RIGHT, strict=True)],
         "subtract": [left - right for left, right in zip(LEFT, RIGHT, strict=True)],
         "multiply": [left * right for left, right in zip(LEFT, RIGHT, strict=True)],
+        "multiply_plain": [left * 0.8 for left in LEFT],
         "sum": [sum(LEFT)],
     }
 
@@ -105,15 +106,17 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
             raise RuntimeError("could not serialize sum keys")
 
         results: dict[str, Any] = {}
-        for operation in ("add", "subtract", "multiply", "sum"):
+        for operation in ("add", "subtract", "multiply", "multiply_plain", "sum"):
             payload: dict[str, Any] = {
                 "operation": operation,
                 "context": context_encoded,
                 "ciphertext_a": left_encoded,
                 "request_id": f"cpu-demo-{operation}",
             }
-            if operation != "sum":
+            if operation in ("add", "subtract", "multiply"):
                 payload["ciphertext_b"] = right_encoded
+            if operation == "multiply_plain":
+                payload["plaintext_b"] = 0.8
             if operation == "multiply":
                 payload["evaluation_keys"] = _encode(mult_key_path.read_bytes())
             if operation == "sum":

@@ -6,6 +6,9 @@ from backends.openfhe_python import OpenFHEPythonBackend
 
 
 class FakeContext:
+    def MakeCKKSPackedPlaintext(self, values: list[float]) -> tuple[object, ...]:
+        return ("plaintext", *values)
+
     def EvalAdd(self, left: object, right: object) -> tuple[object, ...]:
         return ("add", left, right)
 
@@ -30,6 +33,14 @@ class OpenFHEBackendTests(unittest.TestCase):
         )
         self.assertEqual(
             backend.multiply(context, "a", "b"), ("multiply", "a", "b")
+        )
+        self.assertEqual(
+            backend.multiply_plain(context, "a", 0.8),
+            ("multiply", "a", 0.8),
+        )
+        self.assertEqual(
+            backend.multiply_plain(context, "a", (0.8, 0.9)),
+            ("multiply", "a", ("plaintext", 0.8, 0.9)),
         )
         self.assertEqual(backend.sum(context, "a", 8), ("sum", "a", 8))
 

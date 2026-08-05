@@ -67,6 +67,11 @@ def multiply(context: Any, left: Any, right: Any) -> Any:
     return context.EvalMult(left, right)
 
 
+def multiply_plain(context: Any, encrypted: Any, plaintext: Any) -> Any:
+    """Multiply a ciphertext by a public scalar or encoded plaintext."""
+    return context.EvalMult(encrypted, plaintext)
+
+
 def sum_slots(context: Any, encrypted: Any, valid_count: int) -> Any:
     return context.EvalSum(encrypted, valid_count)
 
@@ -117,6 +122,17 @@ class OpenFHECPU:
 
     def multiply(self, left: Any, right: Any) -> Any:
         return multiply(self._context, left, right)
+
+    def multiply_plain(
+        self, encrypted: Any, values: float | Sequence[float]
+    ) -> Any:
+        if isinstance(values, (int, float)) and not isinstance(values, bool):
+            scalar = float(values)
+            if not math.isfinite(scalar):
+                raise ValueError("plaintext scalar must be finite")
+            return multiply_plain(self._context, encrypted, scalar)
+        plaintext = self._context.MakeCKKSPackedPlaintext(self._values(values))
+        return multiply_plain(self._context, encrypted, plaintext)
 
     def sum(self, encrypted: Any, valid_count: int) -> Any:
         if not 1 <= valid_count <= BATCH_SIZE:

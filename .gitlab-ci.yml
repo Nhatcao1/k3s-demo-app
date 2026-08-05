@@ -36,6 +36,8 @@ validate-files:
     - test -f openfhe_cpu/runtime.py
     - test -f client/cpu_service_demo.py
     - test -f client/direct_openfhe_cpu_test.py
+    - test -f demo/cpu-postgres/cpu_postgres_demo/cli.py
+    - test -f demo/cpu-postgres/tests/test_database.py
     - test -f tests/test_app.py
     - test -f tests/test_gpu_api.py
     - test -f gpu/Dockerfile
@@ -45,7 +47,9 @@ validate-files:
     - test -f gpu/worker/src/fides_backend.cpp
     - test -f gpu/worker/src/fides_backend.hpp
     - grep -Fq 'openfhe==1.5.1.0.24.4' requirements.txt
-    - test "$(wc -l < requirements.txt)" -eq 1
+    - grep -Fq 'cryptography>=43,<48' requirements.txt
+    - grep -Fq 'psycopg[binary]>=3.2,<4' requirements.txt
+    - test "$(wc -l < requirements.txt)" -eq 3
     - echo "Required CPU OpenFHE evaluator files exist."
 
 test-he:
@@ -53,6 +57,7 @@ test-he:
   image: python:3.12-alpine
   script:
     - python -m unittest discover -s tests -v
+    - PYTHONPATH=demo/cpu-postgres python -m unittest discover -s demo/cpu-postgres/tests -v
 
 build-openfhe-evaluator-cpu:
   stage: build
@@ -72,6 +77,19 @@ build-openfhe-evaluator-cpu:
         - common/**/*
         - client/__init__.py
         - client/cpu_service_demo.py
+        - demo/cpu-postgres/**/*
+        - openfhe_cpu/**/*
+    - if: '$CI_COMMIT_BRANCH == "feat/cpu-postgres-demo" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      changes:
+        - .gitlab-ci.yml
+        - Dockerfile
+        - requirements.txt
+        - api/**/*
+        - backends/**/*
+        - common/**/*
+        - client/__init__.py
+        - client/cpu_service_demo.py
+        - demo/cpu-postgres/**/*
         - openfhe_cpu/**/*
   before_script:
     - mkdir -p "$HOME/.docker"

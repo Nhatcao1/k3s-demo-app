@@ -6,6 +6,7 @@ import base64
 import binascii
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import math
 import os
 import time
 from typing import Any, Protocol
@@ -14,6 +15,7 @@ from backends.openfhe_python import OpenFHEBackendError, OpenFHEPythonBackend
 from common.operations import (
     OPERATIONS,
     needs_evaluation_keys,
+    needs_plaintext,
     needs_right_ciphertext,
     validate_operation,
 )
@@ -24,6 +26,7 @@ from common.operations import (
 # without installing OpenFHE.
 MAX_ARTIFACT_BYTES = int(os.getenv("MAX_ARTIFACT_BYTES", str(32 * 1024 * 1024)))
 MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(100 * 1024 * 1024)))
+MAX_PLAINTEXT_VALUES = int(os.getenv("MAX_PLAINTEXT_VALUES", "8192"))
 
 
 class RequestError(ValueError):
@@ -44,6 +47,7 @@ class CiphertextEvaluator(Protocol):
         context: bytes,
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
+        plaintext_b: float | tuple[float, ...] | None,
         evaluation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
@@ -74,9 +78,10 @@ def evaluate_request(
 ) -> dict[str, Any]:
     """Validate encrypted inputs, call the backend, and encode its response.
 
-    Plaintext and secret keys are intentionally absent from the accepted
-    request fields. Add new function-specific request rules in
-    common/operations.py and here before exposing a new backend method.
+    Secret keys are intentionally absent from every request. Public plaintext
+    operands are accepted only by the explicit multiply_plain operation. Add
+    new function-specific request rules in common/operations.py and here
+    before exposing another backend method.
     """
     if not isinstance(payload, dict):
         raise RequestError("request body must be a JSON object")
@@ -85,6 +90,7 @@ def evaluate_request(
         "context",
         "ciphertext_a",
         "ciphertext_b",
+        "plaintext_b",
         "evaluation_keys",
         "valid_count",
         "request_id",
@@ -113,7 +119,36 @@ def evaluate_request(
     if needs_right_ciphertext(operation):
         ciphertext_b = _decode_artifact(payload, "ciphertext_b")
     elif "ciphertext_b" in payload:
-        raise RequestError("sum does not accept ciphertext_b")
+        raise RequestError(f"{operation} does not accept ciphertext_b")
+
+    plaintext_b: float | tuple[float, ...] | None = None
+    if needs_plaintext(operation):
+        supplied = payload.get("plaintext_b")
+        if isinstance(supplied, bool):
+            raise RequestError("plaintext_b must be a finite number or number array")
+        if isinstance(supplied, (int, float)):
+            scalar = float(supplied)
+            if not math.isfinite(scalar):
+                raise RequestError("plaintext_b scalar must be finite")
+            plaintext_b = scalar
+        elif isinstance(supplied, list):
+            if not 1 <= len(supplied) <= MAX_PLAINTEXT_VALUES:
+                raise RequestError(
+                    f"plaintext_b length must be in [1, {MAX_PLAINTEXT_VALUES}]"
+                )
+            if any(
+                isinstance(value, bool) or not isinstance(value, (int, float))
+                for value in supplied
+            ):
+                raise RequestError("plaintext_b must contain only numbers")
+            values = tuple(float(value) for value in supplied)
+            if not all(math.isfinite(value) for value in values):
+                raise RequestError("plaintext_b values must be finite")
+            plaintext_b = values
+        else:
+            raise RequestError("plaintext_b must be a finite number or number array")
+    elif "plaintext_b" in payload:
+        raise RequestError(f"{operation} does not accept plaintext_b")
 
     evaluation_keys = None
     if needs_evaluation_keys(operation):
@@ -141,6 +176,7 @@ def evaluate_request(
             context,
             ciphertext_a,
             ciphertext_b,
+            plaintext_b,
             evaluation_keys,
             valid_count,
         )

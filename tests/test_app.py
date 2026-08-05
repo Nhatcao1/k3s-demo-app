@@ -19,6 +19,7 @@ class FakeEvaluator:
         context: bytes,
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
+        plaintext_b: float | tuple[float, ...] | None,
         evaluation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
@@ -27,6 +28,7 @@ class FakeEvaluator:
             context,
             ciphertext_a,
             ciphertext_b,
+            plaintext_b,
             evaluation_keys,
             valid_count,
         )
@@ -55,7 +57,7 @@ class EvaluateRequestTests(unittest.TestCase):
         result = evaluate_request(primitive_payload(), evaluator)
         self.assertEqual(
             evaluator.received,
-            ("add", b"context", b"left", b"right", None, None),
+            ("add", b"context", b"left", b"right", None, None, None),
         )
         self.assertEqual(base64.b64decode(result["ciphertext"]), b"encrypted-result")
         self.assertEqual(result["backend"], "test-backend")
@@ -81,9 +83,53 @@ class EvaluateRequestTests(unittest.TestCase):
         )
         self.assertEqual(
             evaluator.received,
-            ("sum", b"context", b"values", None, b"sum-keys", 8192),
+            ("sum", b"context", b"values", None, None, b"sum-keys", 8192),
         )
         self.assertEqual(result["request_id"], "sum-8192")
+
+    def test_multiply_plain_accepts_scalar_without_evaluation_key(self) -> None:
+        evaluator = FakeEvaluator()
+        evaluate_request(
+            {
+                "operation": "multiply_plain",
+                "context": encoded(b"context"),
+                "ciphertext_a": encoded(b"values"),
+                "plaintext_b": 0.8,
+            },
+            evaluator,
+        )
+        self.assertEqual(
+            evaluator.received,
+            ("multiply_plain", b"context", b"values", None, 0.8, None, None),
+        )
+
+    def test_multiply_plain_accepts_finite_vector(self) -> None:
+        evaluator = FakeEvaluator()
+        evaluate_request(
+            {
+                "operation": "multiply_plain",
+                "context": encoded(b"context"),
+                "ciphertext_a": encoded(b"values"),
+                "plaintext_b": [0.8, 0.9],
+            },
+            evaluator,
+        )
+        self.assertEqual(evaluator.received[4], (0.8, 0.9))
+
+    def test_multiply_plain_rejects_ciphertext_or_nonfinite_value(self) -> None:
+        payload = {
+            "operation": "multiply_plain",
+            "context": encoded(b"context"),
+            "ciphertext_a": encoded(b"values"),
+            "ciphertext_b": encoded(b"not-accepted"),
+            "plaintext_b": 0.8,
+        }
+        with self.assertRaisesRegex(RequestError, "ciphertext_b"):
+            evaluate_request(payload, FakeEvaluator())
+        del payload["ciphertext_b"]
+        payload["plaintext_b"] = float("inf")
+        with self.assertRaisesRegex(RequestError, "finite"):
+            evaluate_request(payload, FakeEvaluator())
 
     def test_rejects_secret_key(self) -> None:
         payload = primitive_payload()
@@ -123,7 +169,10 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.get_json("/readyz")[0], 200)
         status, payload = self.get_json("/v1/capabilities")
         self.assertEqual(status, 200)
-        self.assertEqual(payload["operations"], ["add", "subtract", "multiply", "sum"])
+        self.assertEqual(
+            payload["operations"],
+            ["add", "subtract", "multiply", "multiply_plain", "sum"],
+        )
         self.assertEqual(payload["backend"], "test-backend")
         self.assertFalse(payload["secret_key_required_by_api"])
 

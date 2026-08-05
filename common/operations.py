@@ -4,8 +4,9 @@ from __future__ import annotations
 
 
 PRIMITIVE_OPERATIONS = ("add", "subtract", "multiply")
+PLAINTEXT_OPERATIONS = ("multiply_plain",)
 REDUCTION_OPERATIONS = ("sum",)
-OPERATIONS = PRIMITIVE_OPERATIONS + REDUCTION_OPERATIONS
+OPERATIONS = PRIMITIVE_OPERATIONS + PLAINTEXT_OPERATIONS + REDUCTION_OPERATIONS
 
 
 def validate_operation(value: object) -> str:
@@ -16,6 +17,10 @@ def validate_operation(value: object) -> str:
 
 def needs_right_ciphertext(operation: str) -> bool:
     return operation in PRIMITIVE_OPERATIONS
+
+
+def needs_plaintext(operation: str) -> bool:
+    return operation in PLAINTEXT_OPERATIONS
 
 
 def needs_evaluation_keys(operation: str) -> bool:

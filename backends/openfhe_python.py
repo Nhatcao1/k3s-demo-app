@@ -1,4 +1,4 @@
-"""Simple OpenFHE-Python backend for add, subtract, multiply, and sum."""
+"""OpenFHE-Python backend for ciphertext and public-plaintext operations."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import tempfile
 import threading
 from typing import Any
 
-from openfhe_cpu.runtime import add, multiply, subtract, sum_slots
+from openfhe_cpu.runtime import add, multiply, multiply_plain, subtract, sum_slots
 
 
 class OpenFHEBackendError(ValueError):
@@ -50,6 +50,17 @@ class OpenFHEPythonBackend:
         return multiply(context, left, right)
 
     @staticmethod
+    def multiply_plain(
+        context: Any, encrypted: Any, plaintext: float | tuple[float, ...]
+    ) -> Any:
+        """Ciphertext * public scalar/vector; no relinearization key needed."""
+        if isinstance(plaintext, float):
+            operand: Any = plaintext
+        else:
+            operand = context.MakeCKKSPackedPlaintext(list(plaintext))
+        return multiply_plain(context, encrypted, operand)
+
+    @staticmethod
     def sum(context: Any, encrypted: Any, valid_count: int) -> Any:
         """Reduce valid packed slots; requires rotation/SUM evaluation keys."""
         return sum_slots(context, encrypted, valid_count)
@@ -67,6 +78,7 @@ class OpenFHEPythonBackend:
         context: bytes,
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
+        plaintext_b: float | tuple[float, ...] | None,
         evaluation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
@@ -124,6 +136,9 @@ class OpenFHEPythonBackend:
             if operation == "sum":
                 assert valid_count is not None
                 result = self.sum(crypto_context, left, valid_count)
+            elif operation == "multiply_plain":
+                assert plaintext_b is not None
+                result = self.multiply_plain(crypto_context, left, plaintext_b)
             else:
                 assert ciphertext_b is not None
                 right_path = root / "ciphertext-b.bin"

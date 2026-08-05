@@ -1,1 +1,3 @@
 openfhe==1.5.1.0.24.4
+cryptography>=43,<48
+psycopg[binary]>=3.2,<4

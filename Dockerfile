@@ -28,6 +28,7 @@ COPY backends ./backends
 COPY client/__init__.py client/cpu_service_demo.py ./client/
 COPY common ./common
 COPY openfhe_cpu ./openfhe_cpu
+COPY demo/cpu-postgres/cpu_postgres_demo ./cpu_postgres_demo
 
 RUN useradd --create-home --uid 10001 appuser
 USER appuser
