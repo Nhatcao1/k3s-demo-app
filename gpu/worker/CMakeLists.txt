@@ -8,6 +8,8 @@ project(he-gpu-worker LANGUAGES CXX)
 find_package(fideslib REQUIRED CONFIG)
 find_package(OpenFHE 1.5.1 EXACT REQUIRED CONFIG)
 find_package(CUDAToolkit REQUIRED)
+find_package(OpenMP REQUIRED COMPONENTS CXX)
+find_package(Threads REQUIRED)
 
 set(CMAKE_CXX_COMPILER "${FIDESLIB_CXX_COMPILER}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${FIDESLIB_CXX_FLAGS}")
@@ -37,4 +39,7 @@ target_link_libraries(
     OPENFHEcore_static
     CUDA::cudart
     CUDA::cuda_driver
+    OpenMP::OpenMP_CXX
+    Threads::Threads
+    "${CMAKE_DL_LIBS}"
 )
