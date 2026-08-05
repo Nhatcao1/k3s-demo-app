@@ -119,6 +119,22 @@ class GpuContractTests(unittest.TestCase):
             )
         self.assertEqual(result, b"gpu-worker-result")
 
+    def test_worker_failure_is_written_to_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            worker = Path(directory) / "fake-worker"
+            worker.write_text(
+                "#!/bin/sh\necho precise-worker-failure >&2\nexit 7\n",
+                encoding="utf-8",
+            )
+            os.chmod(worker, 0o700)
+            backend = FidesWorkerBackend(str(worker), device=0)
+            with self.assertLogs("gpu.api.app", level="ERROR") as captured:
+                with self.assertRaisesRegex(RequestError, "rejected"):
+                    backend.evaluate(
+                        "add", b"context", b"public", b"left", b"right", None, None
+                    )
+        self.assertIn("precise-worker-failure", "\n".join(captured.output))
+
 
 class GpuHttpTests(unittest.TestCase):
     def setUp(self) -> None:

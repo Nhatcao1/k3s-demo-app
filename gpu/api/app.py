@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+import ctypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -18,10 +20,40 @@ from typing import Any, Protocol
 OPERATIONS = ("add", "subtract", "multiply", "sum")
 MAX_ARTIFACT_BYTES = int(os.getenv("MAX_ARTIFACT_BYTES", str(256 * 1024 * 1024)))
 MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(768 * 1024 * 1024)))
+LOGGER = logging.getLogger(__name__)
 
 
 class RequestError(ValueError):
     """The caller supplied an invalid or incompatible HE artifact."""
+
+
+def check_gpu_runtime(worker: Path) -> int:
+    """Fail startup with a useful log when the NVIDIA runtime is unavailable."""
+    if not worker.is_file() or not os.access(worker, os.X_OK):
+        raise RuntimeError(f"FIDESlib worker is not executable: {worker}")
+    if not Path("/dev/nvidiactl").exists():
+        raise RuntimeError("NVIDIA device /dev/nvidiactl is not available")
+
+    try:
+        cuda = ctypes.CDLL("libcuda.so.1")
+    except OSError as error:
+        raise RuntimeError("NVIDIA driver library libcuda.so.1 is unavailable") from error
+
+    cuda.cuInit.argtypes = [ctypes.c_uint]
+    cuda.cuInit.restype = ctypes.c_int
+    status = cuda.cuInit(0)
+    if status != 0:
+        raise RuntimeError(f"CUDA driver initialization failed with code {status}")
+
+    device_count = ctypes.c_int()
+    cuda.cuDeviceGetCount.argtypes = [ctypes.POINTER(ctypes.c_int)]
+    cuda.cuDeviceGetCount.restype = ctypes.c_int
+    status = cuda.cuDeviceGetCount(ctypes.byref(device_count))
+    if status != 0:
+        raise RuntimeError(f"CUDA device discovery failed with code {status}")
+    if device_count.value < 1:
+        raise RuntimeError("CUDA initialized but reported no GPU devices")
+    return device_count.value
 
 
 class Evaluator(Protocol):
@@ -146,10 +178,18 @@ class FidesWorkerBackend:
                     timeout=self.timeout,
                 )
             except (OSError, subprocess.TimeoutExpired) as error:
+                LOGGER.exception("FIDESlib worker could not complete")
                 raise RuntimeError("FIDESlib worker could not complete") from error
             if completed.returncode != 0:
+                worker_error = (completed.stderr or "<no stderr>").strip()
+                LOGGER.error(
+                    "FIDESlib worker exited with code %s: %s",
+                    completed.returncode,
+                    worker_error[:8192],
+                )
                 raise RequestError("FIDESlib rejected the supplied HE artifacts")
             if not paths["output"].is_file() or paths["output"].stat().st_size == 0:
+                LOGGER.error("FIDESlib worker exited successfully without an output artifact")
                 raise RuntimeError("FIDESlib worker produced no result")
             return paths["output"].read_bytes()
 
@@ -281,6 +321,7 @@ def make_handler(evaluator: Evaluator) -> type[BaseHTTPRequestHandler]:
             except RequestError as error:
                 self._send(422, {"error": "invalid_request", "detail": str(error)})
             except Exception:
+                LOGGER.exception("GPU evaluation failed")
                 self._send(500, {"error": "evaluation_failed"})
             else:
                 self._send(200, response)
@@ -300,8 +341,18 @@ def create_server(
 def main() -> None:
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8080"))
-    print(f"FIDESlib GPU evaluator listening on {host}:{port}", flush=True)
-    create_server(host, port).serve_forever()
+    evaluator = FidesWorkerBackend()
+    try:
+        device_count = check_gpu_runtime(evaluator.worker)
+    except Exception:
+        LOGGER.exception("GPU runtime startup check failed")
+        raise
+    print(
+        f"GPU runtime check passed with {device_count} device(s); "
+        f"FIDESlib evaluator listening on {host}:{port}",
+        flush=True,
+    )
+    create_server(host, port, evaluator).serve_forever()
 
 
 if __name__ == "__main__":
