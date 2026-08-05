@@ -66,6 +66,8 @@ build-openfhe-evaluator-cpu:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      variables:
+        OPENFHE_CPU_CHANNEL: "docker.io/dockerboi99/he_k8s:cpu-latest"
       changes:
         - .gitlab-ci.yml
         - Dockerfile
@@ -78,6 +80,8 @@ build-openfhe-evaluator-cpu:
         - demo/cpu-postgres/**/*
         - openfhe_cpu/**/*
     - if: '$CI_COMMIT_BRANCH == "feat/cpu-postgres-demo" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      variables:
+        OPENFHE_CPU_CHANNEL: "docker.io/dockerboi99/he_k8s:cpu-postgres-demo"
       changes:
         - .gitlab-ci.yml
         - Dockerfile
@@ -96,13 +100,13 @@ build-openfhe-evaluator-cpu:
       printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
         "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
   script:
-    - echo "Building $OPENFHE_CPU_IMAGE and $OPENFHE_CPU_LATEST"
+    - echo "Building $OPENFHE_CPU_IMAGE and $OPENFHE_CPU_CHANNEL"
     - |
       buildctl-daemonless.sh build \
         --frontend dockerfile.v0 \
         --local context=. \
         --local dockerfile=. \
-        --output "type=image,\"name=$OPENFHE_CPU_IMAGE,$OPENFHE_CPU_LATEST\",push=true"
+        --output "type=image,\"name=$OPENFHE_CPU_IMAGE,$OPENFHE_CPU_CHANNEL\",push=true"
 
 build-fides-evaluator-gpu:
   stage: build
