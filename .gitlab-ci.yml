@@ -33,6 +33,7 @@ validate-files:
     - test -f backends/openfhe_python.py
     - test -f common/operations.py
     - test -f openfhe_cpu/runtime.py
+    - test -f client/cpu_service_demo.py
     - test -f client/direct_openfhe_cpu_test.py
     - test -f tests/test_app.py
     - test -f tests/test_gpu_api.py
@@ -68,6 +69,8 @@ build-openfhe-evaluator-cpu:
         - api/**/*
         - backends/**/*
         - common/**/*
+        - client/__init__.py
+        - client/cpu_service_demo.py
         - openfhe_cpu/**/*
   before_script:
     - mkdir -p "$HOME/.docker"

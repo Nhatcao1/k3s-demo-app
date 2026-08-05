@@ -21,6 +21,40 @@ RING_DIMENSION = 16384
 BATCH_SIZE = 8192
 
 
+def create_trial_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
+    """Create the shared trial CKKS context and client-owned key pair.
+
+    This is intentionally one place for the current trial parameters. The
+    trusted client owns the returned secret key; the evaluator API never sees
+    it. These defaults are for functional development, not final tuning.
+    """
+    of = openfhe_module
+    parameters = of.CCParamsCKKSRNS()
+    parameters.SetMultiplicativeDepth(MULTIPLICATIVE_DEPTH)
+    parameters.SetFirstModSize(FIRST_MOD_SIZE)
+    parameters.SetScalingModSize(SCALING_MOD_SIZE)
+    parameters.SetScalingTechnique(of.FLEXIBLEAUTO)
+    parameters.SetSecurityLevel(of.HEStd_128_classic)
+    parameters.SetRingDim(RING_DIMENSION)
+    parameters.SetBatchSize(BATCH_SIZE)
+
+    context = of.GenCryptoContext(parameters)
+    for feature in (
+        of.PKE,
+        of.KEYSWITCH,
+        of.LEVELEDSHE,
+        of.ADVANCEDSHE,
+    ):
+        context.Enable(feature)
+
+    keys = context.KeyGen()
+    # Multiplication/relinearization material for EvalMult.
+    context.EvalMultKeyGen(keys.secretKey)
+    # Rotation material for packed-slot EvalSum.
+    context.EvalSumKeyGen(keys.secretKey)
+    return context, keys
+
+
 def add(context: Any, left: Any, right: Any) -> Any:
     return context.EvalAdd(left, right)
 
@@ -46,32 +80,7 @@ class OpenFHECPU:
 
     def __init__(self, openfhe_module: Any | None = None) -> None:
         of = openfhe_module or importlib.import_module("openfhe")
-        parameters = of.CCParamsCKKSRNS()
-        parameters.SetMultiplicativeDepth(MULTIPLICATIVE_DEPTH)
-        parameters.SetFirstModSize(FIRST_MOD_SIZE)
-        parameters.SetScalingModSize(SCALING_MOD_SIZE)
-        parameters.SetScalingTechnique(of.FLEXIBLEAUTO)
-        parameters.SetSecurityLevel(of.HEStd_128_classic)
-        parameters.SetRingDim(RING_DIMENSION)
-        parameters.SetBatchSize(BATCH_SIZE)
-
-        context = of.GenCryptoContext(parameters)
-        for feature in (
-            of.PKE,
-            of.KEYSWITCH,
-            of.LEVELEDSHE,
-            of.ADVANCEDSHE,
-        ):
-            context.Enable(feature)
-
-        keys = context.KeyGen()
-        # EvalMultKeyGen creates the multiplication/relinearization material.
-        context.EvalMultKeyGen(keys.secretKey)
-        # EvalSumKeyGen creates the rotation material required by EvalSum.
-        context.EvalSumKeyGen(keys.secretKey)
-
-        self._context = context
-        self._keys = keys
+        self._context, self._keys = create_trial_context_and_keys(of)
 
     @staticmethod
     def _values(values: Sequence[float]) -> list[float]:
