@@ -1,4 +1,9 @@
-"""Secretless HTTP adapter for the separate FIDESlib GPU worker."""
+"""HTTP adapter for the native C++ FIDESlib GPU executables.
+
+This Python process does not import or link FIDESlib. It validates JSON, writes
+temporary input files, and launches ``he-gpu-worker`` or ``he-gpu-demo``.
+FIDESlib calls live in ``gpu/worker/src/*.cpp`` inside those executables.
+"""
 
 from __future__ import annotations
 
@@ -214,7 +219,11 @@ class FidesWorkerBackend:
 
 
 class NativeDemoBackend:
-    """Run an end-to-end FIDESlib operation in one native C++ process."""
+    """Run an end-to-end FIDESlib operation in one native C++ process.
+
+    ``self.worker`` is the compiled ``he-gpu-demo`` binary. The Python API is
+    transport only; encryption, HE evaluation, and decryption happen in C++.
+    """
 
     backend_name = "gpu-fideslib-native-demo"
     _lock = threading.Lock()
@@ -299,11 +308,14 @@ class NativeDemoBackend:
         return [float(value) for value in values]
 
     def sum_many(self, values: list[float]) -> dict[str, Any]:
-        """Pass large input through a private binary file, not command arguments."""
+        """Pass large input to the FIDESlib C++ executable via a private file."""
         with tempfile.TemporaryDirectory(prefix="fides-demo-sum-") as directory:
             input_path = Path(directory) / "values.float64"
             with input_path.open("wb") as output:
                 array("d", values).tofile(output)
+            # Docker builds this executable from gpu/worker/src/demo_main.cpp.
+            # demo_main.cpp then calls FidesBackend::sum(), which maps to
+            # FIDESlib CryptoContext::AccumulateSum().
             payload = self._run(
                 [
                     str(self.worker),
