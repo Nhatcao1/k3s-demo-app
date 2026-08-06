@@ -71,6 +71,23 @@ class VerificationTests(unittest.TestCase):
                     ("demo-1", stage, expected, Decimal("0"), True),
                 )
 
+    def test_failed_verification_keeps_observed_value_and_error(self) -> None:
+        inputs = SimpleNamespace(
+            session_id="demo-1",
+            scheme="ckks",
+            wrap_key=b"x" * 32,
+            kpi_scale=10,
+            tolerance=0.000001,
+        )
+        store = FakeStore()
+        with patch.object(cli, "decrypt_result", return_value=111.0):
+            with self.assertRaises(cli.VerificationFailed):
+                cli.verify_session(inputs, store, "kpi")
+        self.assertEqual(
+            store.recorded,
+            ("demo-1", "kpi", Decimal("111.0"), Decimal("1.0"), False),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

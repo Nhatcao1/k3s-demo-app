@@ -30,6 +30,10 @@ from .crypto import (
 from .database import SessionStore
 
 
+class VerificationFailed(RuntimeError):
+    """The decrypted demo value did not match its expected value."""
+
+
 def _print(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, separators=(",", ":"), sort_keys=True), flush=True)
 
@@ -172,7 +176,10 @@ def verify_session(inputs: DemoInputs, store: SessionStore, stage: str) -> None:
         }
     )
     if not passed:
-        raise SystemExit(1)
+        raise VerificationFailed(
+            f"expected={expected_value}; decrypted={decrypted_value}; "
+            f"absolute_error={absolute_error}; tolerance={inputs.tolerance}"
+        )
 
 
 def show_secret_key(session_id: str, wrapping_key: bytes, store: SessionStore) -> None:
@@ -187,6 +194,52 @@ def show_secret_key(session_id: str, wrapping_key: bytes, store: SessionStore) -
             "warning": "lab-only raw secret key",
         }
     )
+
+
+def dispatch(command: str, store: SessionStore, session_id: str) -> None:
+    if command == "inspect":
+        _print(store.inspect(session_id))
+        return
+    if command == "show-secret-key":
+        show_secret_key(session_id, parse_wrap_key(os.environ), store)
+        return
+    if command == "sum":
+        sum_session(session_id, store)
+        return
+    if command == "multiply":
+        multiply_session(session_id, store)
+        return
+
+    # Only the trusted initialize and verification Jobs receive the Kubernetes
+    # Secret containing plaintext demo inputs and the wrapping key.
+    inputs = DemoInputs.from_environment()
+    if command == "initialize":
+        initialize(inputs, store)
+    elif command == "verify-sum":
+        verify_session(inputs, store, "sum")
+    else:
+        verify_session(inputs, store, "kpi")
+
+
+def _finish_failed_run(
+    store: SessionStore,
+    run_id: int,
+    command: str,
+    error: Exception,
+) -> None:
+    detail = f"{type(error).__name__}: {error}"
+    try:
+        store.finish_job_run(run_id, "FAILED", detail)
+    except Exception as report_error:
+        _print(
+            {
+                "command": command,
+                "outcome": "FAILED",
+                "detail": detail,
+                "database_report": "FAILED",
+                "database_report_error": str(report_error),
+            }
+        )
 
 
 def main() -> None:
@@ -205,32 +258,22 @@ def main() -> None:
     )
     parser.add_argument("--unsafe", action="store_true")
     args = parser.parse_args()
+    if args.command == "show-secret-key" and not args.unsafe:
+        parser.error("show-secret-key requires --unsafe")
+
     store = SessionStore()
     session_id = parse_session_id(os.environ)
-    if args.command == "inspect":
-        _print(store.inspect(session_id))
-        return
-    if args.command == "show-secret-key":
-        if not args.unsafe:
-            parser.error("show-secret-key requires --unsafe")
-        show_secret_key(session_id, parse_wrap_key(os.environ), store)
-        return
-    if args.command == "sum":
-        sum_session(session_id, store)
-        return
-    if args.command == "multiply":
-        multiply_session(session_id, store)
-        return
-
-    # Only the trusted initialize and verification Jobs receive the Kubernetes
-    # Secret containing plaintext demo inputs and the wrapping key.
-    inputs = DemoInputs.from_environment()
-    if args.command == "initialize":
-        initialize(inputs, store)
-    elif args.command == "verify-sum":
-        verify_session(inputs, store, "sum")
+    run_id = store.start_job_run(session_id, args.command)
+    try:
+        dispatch(args.command, store, session_id)
+    except VerificationFailed as error:
+        _finish_failed_run(store, run_id, args.command, error)
+        raise SystemExit(1) from None
+    except Exception as error:
+        _finish_failed_run(store, run_id, args.command, error)
+        raise
     else:
-        verify_session(inputs, store, "kpi")
+        store.finish_job_run(run_id, "COMPLETED")
 
 
 if __name__ == "__main__":

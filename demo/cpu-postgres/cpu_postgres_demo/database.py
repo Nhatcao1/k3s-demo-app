@@ -59,6 +59,46 @@ class SessionStore:
             raise SessionStoreError("psycopg is not installed") from error
         return psycopg.connect(self.conninfo)
 
+    def start_job_run(self, session_id: str, command: str) -> int:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO he_demo_job_runs
+                        (session_id, command, outcome)
+                    VALUES (%s, %s, 'RUNNING')
+                    RETURNING run_id
+                    """,
+                    (session_id, command),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise SessionStoreError("could not create job run report")
+                return int(row[0])
+
+    def finish_job_run(
+        self,
+        run_id: int,
+        outcome: str,
+        detail: str = "",
+    ) -> None:
+        if outcome not in ("COMPLETED", "FAILED"):
+            raise SessionStoreError(f"unknown job run outcome: {outcome}")
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE he_demo_job_runs
+                    SET outcome = %s, detail = %s, finished_at = now()
+                    WHERE run_id = %s AND outcome = 'RUNNING'
+                    """,
+                    (outcome, detail[:4000], run_id),
+                )
+                if cursor.rowcount != 1:
+                    raise SessionStoreError(
+                        f"job run is missing or already finished: {run_id}"
+                    )
+
     def create_session(
         self,
         session_id: str,
