@@ -59,6 +59,16 @@ def main() -> None:
             [sum(LEFT) / len(LEFT)],
             1,
         ),
+        "variance": (
+            he.variance(left, len(LEFT)),
+            [
+                sum(
+                    (value - sum(LEFT) / len(LEFT)) ** 2
+                    for value in LEFT
+                ) / len(LEFT)
+            ],
+            1,
+        ),
     }
 
     for name, (encrypted, expected, output_length) in cases.items():

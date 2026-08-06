@@ -39,7 +39,8 @@ class FakeGpuEvaluator:
         public_key: bytes,
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
-        evaluation_keys: bytes | None,
+        multiplication_keys: bytes | None,
+        rotation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
         self.received = (
@@ -48,7 +49,8 @@ class FakeGpuEvaluator:
             public_key,
             ciphertext_a,
             ciphertext_b,
-            evaluation_keys,
+            multiplication_keys,
+            rotation_keys,
             valid_count,
         )
         return b"gpu-result"
@@ -67,6 +69,13 @@ class FakeNativeDemoEvaluator:
         self.received = (operation, values_a, values_b)
         if operation == "sum":
             return [sum(values_a)]
+        if operation == "mean":
+            return [sum(values_a) / len(values_a)]
+        if operation == "variance":
+            mean = sum(values_a) / len(values_a)
+            return [sum((value - mean) ** 2 for value in values_a) / len(values_a)]
+        if operation == "square":
+            return [value * value for value in values_a]
         assert values_b is not None
         if operation == "add":
             return [left + right for left, right in zip(values_a, values_b)]
@@ -107,7 +116,10 @@ class GpuContractTests(unittest.TestCase):
         response = evaluate_request(primitive_payload(), evaluator)
         self.assertEqual(
             evaluator.received,
-            ("add", b"context", b"public-key", b"left", b"right", None, None),
+            (
+                "add", b"context", b"public-key", b"left", b"right",
+                None, None, None,
+            ),
         )
         self.assertEqual(base64.b64decode(response["ciphertext"]), b"gpu-result")
 
@@ -152,7 +164,7 @@ class GpuContractTests(unittest.TestCase):
             evaluator.received,
             (
                 "mean", b"context", b"public-key", b"values", None,
-                b"rotation-keys", 17,
+                None, b"rotation-keys", 17,
             ),
         )
 
@@ -163,7 +175,29 @@ class GpuContractTests(unittest.TestCase):
             evaluator.received,
             (
                 "square", b"context", b"public-key", b"left", None,
-                b"mult-keys", None,
+                b"mult-keys", None, None,
+            ),
+        )
+
+    def test_variance_uses_both_key_bundles(self) -> None:
+        evaluator = FakeGpuEvaluator()
+        evaluate_request(
+            {
+                "operation": "variance",
+                "context": encoded(b"context"),
+                "public_key": encoded(b"public-key"),
+                "ciphertext_a": encoded(b"values"),
+                "multiplication_keys": encoded(b"mult-keys"),
+                "rotation_keys": encoded(b"rotation-keys"),
+                "valid_count": 17,
+            },
+            evaluator,
+        )
+        self.assertEqual(
+            evaluator.received,
+            (
+                "variance", b"context", b"public-key", b"values", None,
+                b"mult-keys", b"rotation-keys", 17,
             ),
         )
 
@@ -184,7 +218,8 @@ class GpuContractTests(unittest.TestCase):
             os.chmod(worker, 0o700)
             backend = FidesWorkerBackend(str(worker), device=0)
             result = backend.evaluate(
-                "add", b"context", b"public", b"left", b"right", None, None
+                "add", b"context", b"public", b"left", b"right",
+                None, None, None
             )
         self.assertEqual(result, b"gpu-worker-result")
 
@@ -200,7 +235,8 @@ class GpuContractTests(unittest.TestCase):
             with self.assertLogs("gpu.api.app", level="ERROR") as captured:
                 with self.assertRaisesRegex(RequestError, "rejected"):
                     backend.evaluate(
-                        "add", b"context", b"public", b"left", b"right", None, None
+                        "add", b"context", b"public", b"left", b"right",
+                        None, None, None
                     )
         self.assertIn("precise-worker-failure", "\n".join(captured.output))
 
@@ -278,11 +314,11 @@ class GpuHttpTests(unittest.TestCase):
         self.assertEqual(payload["backend"], "gpu-fides-test")
         self.assertEqual(
             payload["operations"],
-            ["add", "subtract", "multiply", "square", "sum", "mean"],
+            ["add", "subtract", "multiply", "square", "sum", "mean", "variance"],
         )
         self.assertEqual(
             payload["native_demo_operations"],
-            ["add", "subtract", "multiply", "sum"],
+            ["add", "subtract", "multiply", "square", "sum", "mean", "variance"],
         )
         self.assertTrue(payload["public_key_required_by_api"])
         self.assertFalse(payload["secret_key_required_by_api"])

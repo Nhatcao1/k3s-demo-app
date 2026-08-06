@@ -31,6 +31,10 @@ class FidesBackend {
         const fideslib::Ciphertext<fideslib::DCRTPoly>& encrypted,
         int valid_count) const;
 
+    fideslib::Ciphertext<fideslib::DCRTPoly> variance(
+        const fideslib::Ciphertext<fideslib::DCRTPoly>& encrypted,
+        int valid_count) const;
+
   private:
     fideslib::CryptoContext<fideslib::DCRTPoly> context_;
 };

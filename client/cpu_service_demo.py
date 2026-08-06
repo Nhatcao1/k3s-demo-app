@@ -87,6 +87,12 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
         "square": [value * value for value in LEFT],
         "sum": [sum(LEFT)],
         "mean": [sum(LEFT) / len(LEFT)],
+        "variance": [
+            sum(
+                (value - sum(LEFT) / len(LEFT)) ** 2
+                for value in LEFT
+            ) / len(LEFT)
+        ],
     }
 
     with tempfile.TemporaryDirectory(prefix="he-cpu-demo-") as directory:
@@ -109,6 +115,7 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
         results: dict[str, Any] = {}
         for operation in (
             "add", "subtract", "multiply", "square", "sum", "mean",
+            "variance",
         ):
             payload: dict[str, Any] = {
                 "operation": operation,
@@ -123,6 +130,12 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
             if operation in ("sum", "mean"):
                 payload["evaluation_keys"] = _encode(sum_key_path.read_bytes())
                 payload["valid_count"] = len(LEFT)
+            if operation == "variance":
+                payload["multiplication_keys"] = _encode(
+                    mult_key_path.read_bytes()
+                )
+                payload["rotation_keys"] = _encode(sum_key_path.read_bytes())
+                payload["valid_count"] = len(LEFT)
 
             response = _post(url, payload, timeout)
             encoded_result = response.get("ciphertext")
@@ -133,7 +146,7 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
                 context,
                 keys.secretKey,
                 encoded_result,
-                1 if operation in ("sum", "mean") else len(LEFT),
+                1 if operation in ("sum", "mean", "variance") else len(LEFT),
                 root / f"{operation}-result.bin",
             )
             maximum_error = max(

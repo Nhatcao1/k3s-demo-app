@@ -116,7 +116,8 @@ int main(int argc, char** argv) {
 
         if (operation != "add" && operation != "subtract" &&
             operation != "multiply" && operation != "square" &&
-            operation != "sum" && operation != "mean") {
+            operation != "sum" && operation != "mean" &&
+            operation != "variance") {
             throw std::invalid_argument("unsupported operation");
         }
 
@@ -135,19 +136,22 @@ int main(int argc, char** argv) {
         }
 
         if (operation == "multiply" || operation == "square" ||
-            operation == "sum" || operation == "mean") {
-            std::ifstream evaluation_keys(
-                required(arguments, "evaluation-keys"), std::ios::binary);
-            if (!evaluation_keys) {
-                throw std::runtime_error("could not open evaluation keys");
+            operation == "variance") {
+            std::ifstream multiplication_keys(
+                required(arguments, "multiplication-keys"), std::ios::binary);
+            if (!multiplication_keys || !context->DeserializeEvalMultKey(
+                    multiplication_keys, fideslib::BINARY)) {
+                throw std::runtime_error(
+                    "could not deserialize multiplication keys");
             }
-            const bool loaded =
-                (operation == "multiply" || operation == "square")
-                ? context->DeserializeEvalMultKey(evaluation_keys, fideslib::BINARY)
-                : context->DeserializeEvalAutomorphismKey(
-                      evaluation_keys, fideslib::BINARY);
-            if (!loaded) {
-                throw std::runtime_error("could not deserialize evaluation keys");
+        }
+        if (operation == "sum" || operation == "mean" ||
+            operation == "variance") {
+            std::ifstream rotation_keys(
+                required(arguments, "rotation-keys"), std::ios::binary);
+            if (!rotation_keys || !context->DeserializeEvalAutomorphismKey(
+                    rotation_keys, fideslib::BINARY)) {
+                throw std::runtime_error("could not deserialize rotation keys");
             }
         }
 
@@ -158,11 +162,12 @@ int main(int argc, char** argv) {
         const auto left = load_ciphertext(left_path, context);
         FidesCiphertext result;
 
-        if (operation == "sum" || operation == "mean") {
+        if (operation == "sum" || operation == "mean" ||
+            operation == "variance") {
             const int valid_count = std::stoi(required(arguments, "valid-count"));
-            result = operation == "sum"
-                ? backend.sum(left, valid_count)
-                : backend.mean(left, valid_count);
+            if (operation == "sum") result = backend.sum(left, valid_count);
+            else if (operation == "mean") result = backend.mean(left, valid_count);
+            else result = backend.variance(left, valid_count);
         } else if (operation == "square") {
             result = backend.square(left);
         } else {

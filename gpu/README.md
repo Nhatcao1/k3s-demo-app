@@ -12,7 +12,8 @@ Add masked CI/CD variables `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` to the
 `k3s-demo-app` GitLab project. The GPU job is skipped until both exist.
 
 The image exposes the same `/v1/evaluate` HTTP shape as the CPU evaluator for
-`add`, `subtract`, `multiply`, `square`, `sum`, and `mean`. Its Python adapter
+`add`, `subtract`, `multiply`, `square`, `sum`, `mean`, and population
+`variance`. Its Python adapter
 only validates and stages binary artifacts; all HE operations execute in the
 C++ FIDESlib worker.
 Because FIDESlib loads GPU evaluation keys using the public key, GPU requests
@@ -30,13 +31,11 @@ NVIDIA-enabled server run.
 
 `POST /v1/demo/evaluate` is the deliberately small GPU correctness demo. It
 accepts numeric arrays, then `/src/worker/build/he-gpu-demo` performs context
-creation, key generation, encryption, `add`, `subtract`, `multiply`, or `sum`,
-and decryption entirely in C++ with FIDESlib. Python only carries the HTTP JSON;
+creation, key generation, encryption, all seven exposed operations, and
+decryption entirely in C++ with FIDESlib. Python only carries the HTTP JSON;
 it does not import OpenFHE or perform HE work.
 
-Current gap: the main ciphertext API also supports `square` and `mean`, but the
-native demo does not yet expose them. They are the next demo operations to add.
-After that, every newly requested main operation must add its matching native
+Every newly requested main operation must add its matching native
 demo operation, direct correctness case, and benchmark case in the same change.
 This keeps GPU image checks fast while preserving `/v1/evaluate` as the real
 secretless contract.
@@ -51,14 +50,13 @@ This is a trusted plaintext demo, not the final secretless boundary. The
 existing `/v1/evaluate` encrypted-artifact endpoint remains separate for later
 serialization work.
 
-After deploying `gpu-latest`, forward the GPU Service and run the four tiny
-correctness cases. The client uses only Python's standard HTTP library and
-does not install or import OpenFHE:
+After deploying the GPU image, call the demo endpoint for a tiny correctness
+case. No OpenFHE installation is needed on the calling machine:
 
 ```sh
-kubectl -n he-dev port-forward service/he-evaluator-gpu 18080:8080
-python3 gpu/client/simple_test.py --url http://127.0.0.1:18080
+curl -sS -X POST http://127.0.0.1:18081/v1/demo/evaluate \
+  -H 'Content-Type: application/json' \
+  -d '{"operation":"variance","values_a":[1,2,3,4]}'
 ```
 
-Expected results are `add=[13,9,11,13]`, `subtract=[11,5,5,5]`,
-`multiply=[12,14,24,36]`, and `sum=[36]`.
+Expected population variance is approximately `1.25`.

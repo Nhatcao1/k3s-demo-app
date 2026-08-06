@@ -25,11 +25,13 @@ from typing import Any, Protocol
 
 
 EVALUATOR_OPERATIONS = (
-    "add", "subtract", "multiply", "square", "sum", "mean",
+    "add", "subtract", "multiply", "square", "sum", "mean", "variance",
 )
-DEMO_OPERATIONS = ("add", "subtract", "multiply", "sum")
+DEMO_OPERATIONS = EVALUATOR_OPERATIONS
 BINARY_OPERATIONS = ("add", "subtract", "multiply")
-REDUCTION_OPERATIONS = ("sum", "mean")
+REDUCTION_OPERATIONS = ("sum", "mean", "variance")
+MULTIPLICATION_KEY_OPERATIONS = ("multiply", "square", "variance")
+ROTATION_KEY_OPERATIONS = ("sum", "mean", "variance")
 MAX_ARTIFACT_BYTES = int(os.getenv("MAX_ARTIFACT_BYTES", str(256 * 1024 * 1024)))
 MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(768 * 1024 * 1024)))
 MAX_DEMO_SUM_VALUES = int(os.getenv("MAX_DEMO_SUM_VALUES", "1000000"))
@@ -83,7 +85,8 @@ class Evaluator(Protocol):
         public_key: bytes,
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
-        evaluation_keys: bytes | None,
+        multiplication_keys: bytes | None,
+        rotation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes: ...
 
@@ -165,7 +168,8 @@ class FidesWorkerBackend:
         public_key: bytes,
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
-        evaluation_keys: bytes | None,
+        multiplication_keys: bytes | None,
+        rotation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
         with self._lock, tempfile.TemporaryDirectory(prefix="fides-evaluate-") as directory:
@@ -175,7 +179,8 @@ class FidesWorkerBackend:
                 "public_key": root / "public-key.bin",
                 "left": root / "ciphertext-a.bin",
                 "right": root / "ciphertext-b.bin",
-                "evaluation_keys": root / "evaluation-keys.bin",
+                "multiplication_keys": root / "multiplication-keys.bin",
+                "rotation_keys": root / "rotation-keys.bin",
                 "output": root / "result.bin",
             }
             paths["context"].write_bytes(context)
@@ -196,9 +201,14 @@ class FidesWorkerBackend:
             if ciphertext_b is not None:
                 paths["right"].write_bytes(ciphertext_b)
                 command.extend(("--right", str(paths["right"])))
-            if evaluation_keys is not None:
-                paths["evaluation_keys"].write_bytes(evaluation_keys)
-                command.extend(("--evaluation-keys", str(paths["evaluation_keys"])))
+            if multiplication_keys is not None:
+                paths["multiplication_keys"].write_bytes(multiplication_keys)
+                command.extend((
+                    "--multiplication-keys", str(paths["multiplication_keys"])
+                ))
+            if rotation_keys is not None:
+                paths["rotation_keys"].write_bytes(rotation_keys)
+                command.extend(("--rotation-keys", str(paths["rotation_keys"])))
             if valid_count is not None:
                 command.extend(("--valid-count", str(valid_count)))
 
@@ -367,7 +377,8 @@ def evaluate_request(payload: Any, evaluator: Evaluator) -> dict[str, Any]:
         raise RequestError("request body must be a JSON object")
     allowed = {
         "operation", "context", "public_key", "ciphertext_a", "ciphertext_b",
-        "evaluation_keys", "valid_count", "request_id",
+        "evaluation_keys", "multiplication_keys", "rotation_keys",
+        "valid_count", "request_id",
     }
     unexpected = sorted(set(payload) - allowed)
     if unexpected:
@@ -393,11 +404,41 @@ def evaluate_request(payload: Any, evaluator: Evaluator) -> dict[str, Any]:
     elif "ciphertext_b" in payload:
         raise RequestError(f"{operation} does not accept ciphertext_b")
 
-    evaluation_keys = None
-    if operation in ("multiply", "square", "sum", "mean"):
-        evaluation_keys = _decode(payload, "evaluation_keys")
-    elif "evaluation_keys" in payload:
-        raise RequestError(f"{operation} does not accept evaluation_keys")
+    key_fields = {
+        name for name in (
+            "evaluation_keys", "multiplication_keys", "rotation_keys"
+        ) if name in payload
+    }
+    multiplication_keys = None
+    rotation_keys = None
+    if operation == "variance":
+        if "evaluation_keys" in key_fields:
+            raise RequestError(
+                "variance requires separate multiplication_keys and rotation_keys"
+            )
+        multiplication_keys = _decode(payload, "multiplication_keys")
+        rotation_keys = _decode(payload, "rotation_keys")
+    elif operation in MULTIPLICATION_KEY_OPERATIONS:
+        if key_fields == {"evaluation_keys"}:
+            multiplication_keys = _decode(payload, "evaluation_keys")
+        elif key_fields == {"multiplication_keys"}:
+            multiplication_keys = _decode(payload, "multiplication_keys")
+        else:
+            raise RequestError(
+                f"{operation} requires exactly one of evaluation_keys or "
+                "multiplication_keys"
+            )
+    elif operation in ROTATION_KEY_OPERATIONS:
+        if key_fields == {"evaluation_keys"}:
+            rotation_keys = _decode(payload, "evaluation_keys")
+        elif key_fields == {"rotation_keys"}:
+            rotation_keys = _decode(payload, "rotation_keys")
+        else:
+            raise RequestError(
+                f"{operation} requires exactly one of evaluation_keys or rotation_keys"
+            )
+    elif key_fields:
+        raise RequestError(f"{operation} does not accept evaluation keys")
 
     valid_count = payload.get("valid_count")
     if operation in REDUCTION_OPERATIONS:
@@ -411,7 +452,7 @@ def evaluate_request(payload: Any, evaluator: Evaluator) -> dict[str, Any]:
     started = time.perf_counter()
     result = evaluator.evaluate(
         operation, context, public_key, ciphertext_a, ciphertext_b,
-        evaluation_keys, valid_count,
+        multiplication_keys, rotation_keys, valid_count,
     )
     response: dict[str, Any] = {
         "operation": operation,
@@ -457,9 +498,9 @@ def evaluate_demo_request(
         )
     values_a = _demo_values(payload, "values_a")
     values_b = None
-    if operation == "sum":
+    if operation in ("square", "sum", "mean", "variance"):
         if "values_b" in payload:
-            raise RequestError("sum does not accept values_b")
+            raise RequestError(f"{operation} does not accept values_b")
     else:
         values_b = _demo_values(payload, "values_b")
         if len(values_a) != len(values_b):
@@ -551,6 +592,15 @@ def make_handler(
                     "serialization": evaluator.serialization,
                     "public_key_required_by_api": True,
                     "secret_key_required_by_api": False,
+                    "key_contract": {
+                        "variance": ["multiplication_keys", "rotation_keys"],
+                        "legacy_single_key_field": "evaluation_keys",
+                    },
+                    "not_implemented": {
+                        "compare": "CKKS/FHEW scheme switching is not available in pinned FIDESlib",
+                        "max": "CKKS/FHEW scheme switching is not available in pinned FIDESlib",
+                        "rolling_mean": "window boundary semantics not fixed",
+                    },
                     "native_demo_endpoint": "/v1/demo/evaluate",
                     "native_demo_input": "plaintext numeric arrays",
                     "native_demo_operations": list(DEMO_OPERATIONS),

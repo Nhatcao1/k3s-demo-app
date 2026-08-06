@@ -35,7 +35,7 @@ Ví dụ 17 phần tử cần `1, 2, 3, 4, 8, 12, 16`; không chỉ cần
 
 - `add`, `subtract`, `multiply`
 - `square`
-- `sum`, `mean`
+- `sum`, `mean`, `variance` (population variance)
 
 CPU gọi OpenFHE-Python trong `backends/openfhe_python.py`. GPU gọi FIDESlib C++
 trong `gpu/worker/src/fides_backend.cpp`, qua transport
@@ -43,15 +43,16 @@ trong `gpu/worker/src/fides_backend.cpp`, qua transport
 artifact nhị phân; nó không thực hiện phép HE.
 
 Mọi request đều cần `context` và `ciphertext_a`. GPU cần thêm `public_key` để
-load context lên device. Trường `evaluation_keys` chứa đúng một loại key theo
-phép toán:
+load context lên device. Hàm cũ vẫn nhận trường `evaluation_keys` chứa đúng
+một loại key. `variance` cần đồng thời hai loại nên dùng hai trường riêng:
 
-| Phép toán | `ciphertext_b` | `evaluation_keys` | `valid_count` |
+| Phép toán | `ciphertext_b` | Evaluation key | `valid_count` |
 | --- | --- | --- | --- |
 | `add`, `subtract` | Bắt buộc | Không | Không |
 | `multiply` | Bắt buộc | Multiplication | Không |
 | `square` | Không | Multiplication | Không |
 | `sum`, `mean` | Không | Rotation | Bắt buộc |
+| `variance` | Không | `multiplication_keys` + `rotation_keys` | Bắt buộc |
 
 Secret key và plaintext đầu vào không được nhận bởi `/v1/evaluate`; client giữ
 secret key để giải mã ciphertext kết quả.
@@ -76,20 +77,23 @@ Trạng thái hiện tại:
 
 | Backend | `/v1/evaluate` | Demo hiện có | Gap cần làm ngay |
 | --- | --- | --- | --- |
-| CPU | sáu hàm | `/v1/demo/sum`: `sum` | thống nhất `/v1/demo/evaluate` cho sáu hàm |
-| GPU | sáu hàm | `add`, `subtract`, `multiply`, `sum` | thêm `square`, `mean` |
+| CPU | bảy hàm | `/v1/demo/evaluate`: đủ bảy hàm; `/v1/demo/sum`: SUM lớn | benchmark từng hàm ngoài SUM |
+| GPU | bảy hàm | `/v1/demo/evaluate`: đủ bảy hàm; `/v1/demo/sum`: SUM lớn | benchmark từng hàm ngoài SUM |
 
 ## Thứ tự phát triển tiếp
 
-1. Đóng gap demo hiện tại cho CPU/GPU, bắt đầu bằng `square` và `mean` GPU.
-2. Kiểm tra correctness và benchmark sáu hàm hiện tại trên cả CPU/GPU.
+1. Build hai image và kiểm tra correctness của `square`, `mean`, `variance`
+   qua demo CPU/GPU trên K3s.
+2. Mở rộng benchmark hiện tại từ SUM sang bảy hàm đã expose.
 3. Thêm `weighted_sum` theo đầy đủ quy tắc function ở trên; cần contract để
    nhận và serialize plaintext weights.
-4. Đổi contract key từ một `evaluation_keys` thành hai bundle riêng
-   `multiplication_keys` và `rotation_keys`, rồi mới thêm `variance` và
-   `covariance`.
+4. Thêm `covariance`; dùng cùng contract hai bundle key của `variance`.
 5. Tối ưu multiplicative depth, modulus chain, rescale, relinearization và
    rotation set sau khi toàn bộ hàm CPU/GPU chạy đúng.
 
-Chưa nên thêm `compare_threshold` hoặc `max`: chúng cần một thiết kế
-scheme-switch riêng và hiện không có đường tương đương trong FIDESlib GPU.
+`compare_threshold` và `max` chưa được expose: OpenFHE CPU có API scheme
+switch CKKS/FHEW nhưng service hiện chưa có context/key/serialization contract
+cho chúng; FIDESlib đang pin không có API tương đương. `rolling_mean` cũng chưa
+được expose vì phải chốt trailing/centered, padding và có cho phép wrap-around
+packed-slot hay không. `/v1/capabilities` báo chúng trong `not_implemented`,
+không đưa vào `operations`.

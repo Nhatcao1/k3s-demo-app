@@ -13,6 +13,8 @@ Keep this short list updated whenever a GPU CI or K3s failure is diagnosed.
 | Replacement GPU Pod stays Pending | One T4 is already held by the old Pod during a rolling update. | Use `Recreate`; delete the old Deployment before applying the replacement. |
 | Native C++ succeeds but HTTP returns invalid JSON | FIDESlib prints its GPU banner before the JSON result. | Parse the last valid JSON object from worker stdout. |
 | GPU Pod cannot schedule | Runtime, hostname, GPU request, or T4 toleration does not match the cluster. | Keep `runtimeClassName: nvidia`, the confirmed GPU hostname, `nvidia.com/gpu: 1`, and `dedicated=T4:NoSchedule` toleration in GitOps. |
+| `gpu-7d830d6` cannot be pulled although Docker Hub shows the build | GitLab `CI_COMMIT_SHORT_SHA` is 8 characters here; the real tag is `gpu-7d830d6f`. The 7-character SHA shown in local `git log --oneline` is not the image tag. | Copy the complete tag from Docker Hub or GitLab job output. |
+| `http: server gave HTTP response to HTTPS client` while pulling from `hub.vtcc.vn:8989` | Containerd assumes HTTPS, but that mirror endpoint answered plain HTTP. This is independent of whether the tag exists. | Use the direct HTTPS Docker Hub repository, or ask the cluster administrator to configure this exact registry as an allowed plain-HTTP mirror on every target node. A Kubernetes TLS-skip flag or imagePullSecret does not fix the node runtime protocol. |
 
 Important architecture rule: never link standard OpenFHE and FIDESlib's patched
 OpenFHE into the same image/process. CPU OpenFHE-Python and GPU FIDESlib remain

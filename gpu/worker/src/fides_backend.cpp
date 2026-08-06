@@ -84,4 +84,27 @@ fideslib::Ciphertext<fideslib::DCRTPoly> FidesBackend::mean(
     return context_->EvalMult(encrypted_sum, 1.0 / valid_count);
 }
 
+fideslib::Ciphertext<fideslib::DCRTPoly> FidesBackend::variance(
+    const fideslib::Ciphertext<fideslib::DCRTPoly>& encrypted,
+    int valid_count) const {
+    if (!encrypted) {
+        throw std::invalid_argument("variance requires one ciphertext");
+    }
+    if (valid_count < 1) {
+        throw std::invalid_argument("valid_count must be positive for variance");
+    }
+    // Population variance = E[x^2] - E[x]^2. This composition requires both
+    // multiplication/relinearization keys and rotation keys.
+    const double inverse_count = 1.0 / valid_count;
+    auto encrypted_sum = context_->AccumulateSum(encrypted, valid_count);
+    auto encrypted_square = context_->EvalSquare(encrypted);
+    auto encrypted_square_sum =
+        context_->AccumulateSum(encrypted_square, valid_count);
+    auto encrypted_mean = context_->EvalMult(encrypted_sum, inverse_count);
+    auto encrypted_second_moment =
+        context_->EvalMult(encrypted_square_sum, inverse_count);
+    auto encrypted_mean_square = context_->EvalSquare(encrypted_mean);
+    return context_->EvalSub(encrypted_second_moment, encrypted_mean_square);
+}
+
 }  // namespace he_gpu

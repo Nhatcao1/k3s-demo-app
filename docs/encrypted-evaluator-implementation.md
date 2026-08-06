@@ -5,12 +5,12 @@
 Develop only these logical operations first:
 
 ```text
-add, subtract, multiply, square, sum, mean
+add, subtract, multiply, square, sum, mean, variance
 ```
 
 The shared names live in `common/operations.py`. The OpenFHE and FIDESlib
-backends each expose direct methods for the six operations. Parameter
-profiles, workflow contracts, MIN/MAX, variance, model inference, and other
+backends each expose direct methods for the seven operations. Parameter
+profiles, workflow contracts, compare/MAX, model inference, and other
 workloads wait. See `he-main-api-function-matrix.md` for the detailed matrix.
 
 ## Security boundary
@@ -25,8 +25,8 @@ Never send or log plaintext or the secret key.
 
 | Backend | Repository/image | HE runtime | Status |
 | --- | --- | --- | --- |
-| CPU | root `Dockerfile` / `dockerboi99/he_k8s:cpu-*` | standard `openfhe-python` | six-operation API |
-| GPU | `gpu/Dockerfile` / `dockerboi99/he_k8s:gpu-*` | FIDESlib + patched OpenFHE | matching six-operation API |
+| CPU | root `Dockerfile` / `dockerboi99/he_k8s:cpu-*` | standard `openfhe-python` | seven-operation API |
+| GPU | `gpu/Dockerfile` / `dockerboi99/he_k8s:gpu-*` | FIDESlib + patched OpenFHE | matching seven-operation API |
 
 Standard OpenFHE and FIDESlib's patched OpenFHE must never be installed or
 linked into the same image/process. CPU and GPU exchange only serialized
@@ -47,7 +47,7 @@ operation and verifies the decrypted answer.
 
 ```text
 POST /v1/evaluate
-operation = add | subtract | multiply | square | sum | mean
+operation = add | subtract | multiply | square | sum | mean | variance
 ```
 
 - `add`, `subtract`: context + two ciphertexts;
@@ -64,7 +64,7 @@ ciphertext. It contains no plaintext result.
 Before adding more HE functions:
 
 - GitLab API tests pass and the CPU image builds;
-- server client decrypts the six results and checks tolerance;
+- server client decrypts the seven results and checks tolerance;
 - SUM works for one batch, then for chunked `50k` input;
 - no request contains a secret key;
 - CPU and GPU remain separate images/processes.

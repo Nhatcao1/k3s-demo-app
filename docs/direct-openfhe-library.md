@@ -15,10 +15,10 @@ python3 -m pip install -r requirements.txt
 python3 -m client.direct_openfhe_cpu_test
 ```
 
-Script kiểm tra sáu hàm bằng dữ liệu nhỏ rồi decrypt để so sánh kết quả:
+Script kiểm tra bảy hàm bằng dữ liệu nhỏ rồi decrypt để so sánh kết quả:
 
 ```text
-add, subtract, multiply, square, sum, mean
+add, subtract, multiply, square, sum, mean, variance
 ```
 
 ## Code đi qua đâu

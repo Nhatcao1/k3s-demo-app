@@ -40,6 +40,14 @@ class OpenFHEBackendTests(unittest.TestCase):
             backend.mean(context, "a", 8),
             ("multiply", ("sum", "a", 8), 0.125),
         )
+        self.assertEqual(
+            backend.variance(context, "a", 4),
+            (
+                "subtract",
+                ("multiply", ("sum", ("square", "a"), 4), 0.25),
+                ("square", ("multiply", ("sum", "a", 4), 0.25)),
+            ),
+        )
 
 
 if __name__ == "__main__":

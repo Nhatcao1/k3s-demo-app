@@ -137,7 +137,7 @@ void print_sum_result(
 
 fideslib::CryptoContext<fideslib::DCRTPoly> create_context() {
     fideslib::CCParams<fideslib::CryptoContextCKKSRNS> parameters;
-    parameters.SetMultiplicativeDepth(1);
+    parameters.SetMultiplicativeDepth(2);
     parameters.SetFirstModSize(60);
     parameters.SetScalingModSize(50);
     parameters.SetScalingTechnique(fideslib::FLEXIBLEAUTO);
@@ -224,9 +224,12 @@ void run_small_operation(
     right.resize(kBatchSize, 0.0);
     auto context = create_context();
     auto keys = context->KeyGen();
-    if (operation == "multiply") {
+    if (operation == "multiply" || operation == "square" ||
+        operation == "variance") {
         context->EvalMultKeyGen(keys.secretKey);
-    } else if (operation == "sum") {
+    }
+    if (operation == "sum" || operation == "mean" ||
+        operation == "variance") {
         const auto rotations = FIDESlib::CKKS::GetAccumulateRotationIndices(
             4, 1, static_cast<int>(kBatchSize));
         context->EvalRotateKeyGen(
@@ -239,7 +242,13 @@ void run_small_operation(
     auto left_ciphertext = context->Encrypt(keys.publicKey, left_plaintext);
     Ciphertext result;
     if (operation == "sum") {
-        result = backend.sum(left_ciphertext, static_cast<int>(kBatchSize));
+        result = backend.sum(left_ciphertext, static_cast<int>(input_length));
+    } else if (operation == "mean") {
+        result = backend.mean(left_ciphertext, static_cast<int>(input_length));
+    } else if (operation == "variance") {
+        result = backend.variance(left_ciphertext, static_cast<int>(input_length));
+    } else if (operation == "square") {
+        result = backend.square(left_ciphertext);
     } else {
         auto right_plaintext = context->MakeCKKSPackedPlaintext(right);
         auto right_ciphertext = context->Encrypt(keys.publicKey, right_plaintext);
@@ -252,7 +261,9 @@ void run_small_operation(
     if (!decrypted_result.isValid) {
         throw std::runtime_error("FIDESlib decryption failed");
     }
-    const std::size_t result_length = operation == "sum" ? 1 : input_length;
+    const std::size_t result_length =
+        (operation == "sum" || operation == "mean" || operation == "variance")
+        ? 1 : input_length;
     decrypted->SetLength(result_length);
     auto result_values = decrypted->GetRealPackedValue();
     result_values.resize(result_length);
@@ -266,7 +277,9 @@ int main(int argc, char** argv) {
         const auto arguments = parse_arguments(argc, argv);
         const auto& operation = required(arguments, "operation");
         if (operation != "add" && operation != "subtract" &&
-            operation != "multiply" && operation != "sum") {
+            operation != "multiply" && operation != "square" &&
+            operation != "sum" && operation != "mean" &&
+            operation != "variance") {
             throw std::invalid_argument("unsupported operation");
         }
         const auto input_file = arguments.find("input-file");
@@ -280,7 +293,8 @@ int main(int argc, char** argv) {
         auto left = parse_values(required(arguments, "left"));
         const std::size_t input_length = left.size();
         std::vector<double> right;
-        if (operation != "sum") {
+        if (operation == "add" || operation == "subtract" ||
+            operation == "multiply") {
             right = parse_values(required(arguments, "right"));
             if (left.size() != right.size()) {
                 throw std::invalid_argument("left and right vectors must have equal length");

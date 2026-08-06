@@ -5,7 +5,7 @@ scope is intentionally small:
 
 - primitives: `add`, `subtract`, `multiply`;
 - unary: `square`;
-- reductions: `sum`, `mean`.
+- reductions: `sum`, `mean`, `variance` (population variance).
 
 The API accepts serialized CKKS context, evaluation keys when required, and
 ciphertexts. It never accepts plaintext or a secret key and returns only a
@@ -24,7 +24,7 @@ same image or process. Both images are built from this repository, but remain
 independent processes. The GPU worker receives serialized artifacts through
 its HTTP adapter and performs the HE operations in native FIDESlib C++.
 
-The small operation list is in `common/operations.py`. The six explicit
+The small operation list is in `common/operations.py`. The seven explicit
 CPU defaults and direct functions live in `openfhe_cpu/runtime.py`, and the
 serialized evaluator adapter lives in `backends/openfhe_python.py`. The
 matching FIDESlib methods live in `gpu/worker/src/fides_backend.cpp`. The HTTP
@@ -64,6 +64,10 @@ EvalMult keys. `sum` and `mean` use one ciphertext plus rotation keys:
   "request_id": "optional-run-id"
 }
 ```
+
+`variance` composes `E[x²] - E[x]²` and therefore needs both key types. It
+uses explicit `multiplication_keys` and `rotation_keys` fields instead of the
+legacy single `evaluation_keys` field.
 
 For data larger than one CKKS batch, the trusted client encrypts chunks, calls
 `sum` for each chunk, then combines the encrypted partial scalars with `add`.
@@ -111,7 +115,7 @@ python -m client.direct_openfhe_cpu_test
 ```
 
 See `docs/direct-openfhe-library.md` for the short direct-library setup and
-the six checked operations.
+the seven checked operations.
 
 The parameter trade-offs and later optimization checkpoint are recorded in
 `docs/he-parameter-optimization-note.md`.

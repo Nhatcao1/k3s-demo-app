@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 from api.app import (
     RequestError,
     create_server,
+    evaluate_demo_request,
     evaluate_demo_sum_request,
     evaluate_request,
 )
@@ -24,7 +25,8 @@ class FakeEvaluator:
         context: bytes,
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
-        evaluation_keys: bytes | None,
+        multiplication_keys: bytes | None,
+        rotation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
         self.received = (
@@ -32,7 +34,8 @@ class FakeEvaluator:
             context,
             ciphertext_a,
             ciphertext_b,
-            evaluation_keys,
+            multiplication_keys,
+            rotation_keys,
             valid_count,
         )
         return b"encrypted-result"
@@ -52,6 +55,30 @@ class FakeDemoSumEvaluator:
             "chunks": 1,
             "timings": {"total_seconds": 0.1},
         }
+
+
+class FakeDemoEvaluator:
+    backend_name = "cpu-openfhe-native-test"
+    ready = True
+
+    def evaluate(
+        self,
+        operation: str,
+        values_a: list[float],
+        values_b: list[float] | None,
+    ) -> list[float]:
+        self.received = (operation, values_a, values_b)
+        if operation == "sum":
+            return [sum(values_a)]
+        if operation == "mean":
+            return [sum(values_a) / len(values_a)]
+        if operation == "variance":
+            mean = sum(values_a) / len(values_a)
+            return [sum((value - mean) ** 2 for value in values_a) / len(values_a)]
+        if operation == "square":
+            return [value * value for value in values_a]
+        assert values_b is not None
+        return [left + right for left, right in zip(values_a, values_b)]
 
 
 def encoded(value: bytes) -> str:
@@ -78,7 +105,7 @@ class EvaluateRequestTests(unittest.TestCase):
         result = evaluate_request(primitive_payload(), evaluator)
         self.assertEqual(
             evaluator.received,
-            ("add", b"context", b"left", b"right", None, None),
+            ("add", b"context", b"left", b"right", None, None, None),
         )
         self.assertEqual(base64.b64decode(result["ciphertext"]), b"encrypted-result")
         self.assertEqual(result["backend"], "test-backend")
@@ -104,7 +131,7 @@ class EvaluateRequestTests(unittest.TestCase):
         )
         self.assertEqual(
             evaluator.received,
-            ("sum", b"context", b"values", None, b"sum-keys", 8192),
+            ("sum", b"context", b"values", None, None, b"sum-keys", 8192),
         )
         self.assertEqual(result["request_id"], "sum-8192")
 
@@ -113,7 +140,7 @@ class EvaluateRequestTests(unittest.TestCase):
         evaluate_request(primitive_payload("square"), evaluator)
         self.assertEqual(
             evaluator.received,
-            ("square", b"context", b"left", None, b"mult-keys", None),
+            ("square", b"context", b"left", None, b"mult-keys", None, None),
         )
 
     def test_mean_uses_rotation_keys_and_valid_count(self) -> None:
@@ -130,8 +157,36 @@ class EvaluateRequestTests(unittest.TestCase):
         )
         self.assertEqual(
             evaluator.received,
-            ("mean", b"context", b"values", None, b"rotation-keys", 4),
+            ("mean", b"context", b"values", None, None, b"rotation-keys", 4),
         )
+
+    def test_variance_requires_both_key_bundles(self) -> None:
+        evaluator = FakeEvaluator()
+        evaluate_request(
+            {
+                "operation": "variance",
+                "context": encoded(b"context"),
+                "ciphertext_a": encoded(b"values"),
+                "multiplication_keys": encoded(b"mult-keys"),
+                "rotation_keys": encoded(b"rotation-keys"),
+                "valid_count": 4,
+            },
+            evaluator,
+        )
+        self.assertEqual(
+            evaluator.received,
+            (
+                "variance", b"context", b"values", None, b"mult-keys",
+                b"rotation-keys", 4,
+            ),
+        )
+
+    def test_variance_demo_is_population_variance(self) -> None:
+        result = evaluate_demo_request(
+            {"operation": "variance", "values_a": [1, 2, 3, 4]},
+            FakeDemoEvaluator(),
+        )
+        self.assertEqual(result["values"], [1.25])
 
     def test_rejects_secret_key(self) -> None:
         payload = primitive_payload()
@@ -155,6 +210,7 @@ class HttpApiTests(unittest.TestCase):
             host="127.0.0.1",
             port=0,
             evaluator=FakeEvaluator(),
+            demo_evaluator=FakeDemoEvaluator(),
             demo_sum_evaluator=FakeDemoSumEvaluator(),
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -189,7 +245,7 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(
             payload["operations"],
-            ["add", "subtract", "multiply", "square", "sum", "mean"],
+            ["add", "subtract", "multiply", "square", "sum", "mean", "variance"],
         )
         self.assertEqual(payload["backend"], "test-backend")
         self.assertFalse(payload["secret_key_required_by_api"])
