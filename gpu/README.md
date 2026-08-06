@@ -34,6 +34,13 @@ creation, key generation, encryption, `add`, `subtract`, `multiply`, or `sum`,
 and decryption entirely in C++ with FIDESlib. Python only carries the HTTP JSON;
 it does not import OpenFHE or perform HE work.
 
+Current gap: the main ciphertext API also supports `square` and `mean`, but the
+native demo does not yet expose them. They are the next demo operations to add.
+After that, every newly requested main operation must add its matching native
+demo operation, direct correctness case, and benchmark case in the same change.
+This keeps GPU image checks fast while preserving `/v1/evaluate` as the real
+secretless contract.
+
 Example:
 
 ```json

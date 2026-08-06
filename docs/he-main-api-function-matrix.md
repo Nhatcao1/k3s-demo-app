@@ -56,14 +56,39 @@ phép toán:
 Secret key và plaintext đầu vào không được nhận bởi `/v1/evaluate`; client giữ
 secret key để giải mã ciphertext kết quả.
 
+## Quy tắc hoàn thành một function
+
+Từ bây giờ, thêm function nào thì phải triển khai cùng operation đó theo một
+vertical slice, không chỉ thêm vào backend chính:
+
+1. Hàm HE trong CPU OpenFHE và GPU FIDESlib nếu library hỗ trợ.
+2. Contract ciphertext trong `POST /v1/evaluate`.
+3. Contract plaintext cùng tên trong `POST /v1/demo/evaluate`; demo phải thật
+   sự keygen, encrypt, evaluate và decrypt bằng HE backend.
+4. Unit/contract test và một lệnh gọi trực tiếp nhỏ để kiểm tra image trên K3s.
+5. Benchmark case so sánh correctness và timing với Python/Pandas plaintext.
+
+Demo nhận plaintext để kiểm tra nhanh library, CUDA, image và operation. Demo
+không thay thế test `/v1/evaluate`, vì API chính mới kiểm tra boundary không
+đưa secret key hoặc plaintext vào evaluator.
+
+Trạng thái hiện tại:
+
+| Backend | `/v1/evaluate` | Demo hiện có | Gap cần làm ngay |
+| --- | --- | --- | --- |
+| CPU | sáu hàm | `/v1/demo/sum`: `sum` | thống nhất `/v1/demo/evaluate` cho sáu hàm |
+| GPU | sáu hàm | `add`, `subtract`, `multiply`, `sum` | thêm `square`, `mean` |
+
 ## Thứ tự phát triển tiếp
 
-1. Kiểm tra correctness và benchmark sáu hàm hiện tại trên cả CPU/GPU.
-2. Thêm `weighted_sum`: cần contract để nhận và serialize plaintext weights.
-3. Đổi contract key từ một `evaluation_keys` thành hai bundle riêng
+1. Đóng gap demo hiện tại cho CPU/GPU, bắt đầu bằng `square` và `mean` GPU.
+2. Kiểm tra correctness và benchmark sáu hàm hiện tại trên cả CPU/GPU.
+3. Thêm `weighted_sum` theo đầy đủ quy tắc function ở trên; cần contract để
+   nhận và serialize plaintext weights.
+4. Đổi contract key từ một `evaluation_keys` thành hai bundle riêng
    `multiplication_keys` và `rotation_keys`, rồi mới thêm `variance` và
    `covariance`.
-4. Tối ưu multiplicative depth, modulus chain, rescale, relinearization và
+5. Tối ưu multiplicative depth, modulus chain, rescale, relinearization và
    rotation set sau khi toàn bộ hàm CPU/GPU chạy đúng.
 
 Chưa nên thêm `compare_threshold` hoặc `max`: chúng cần một thiết kế
