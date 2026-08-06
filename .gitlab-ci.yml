@@ -36,6 +36,8 @@ validate-files:
     - test -f client/direct_openfhe_cpu_test.py
     - test -f tests/test_app.py
     - test -f tests/test_gpu_api.py
+    - test -f tests/test_gpu_source_contract.py
+    - test -f docs/gpu-known-errors.md
     - test -f gpu/Dockerfile
     - test -f gpu/api/app.py
     - test -f gpu/client/simple_test.py
@@ -103,6 +105,7 @@ build-fides-evaluator-gpu:
         - .gitlab-ci.yml
         - .gitmodules
         - gpu/**/*
+        - tests/test_gpu_source_contract.py
       when: manual
       allow_failure: true
   before_script:
