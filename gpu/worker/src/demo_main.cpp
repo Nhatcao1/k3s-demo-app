@@ -235,14 +235,14 @@ void run_small_operation(
     }
     context->LoadContext(keys.publicKey);
     he_gpu::FidesBackend backend(context);
-    auto left_ciphertext = context->Encrypt(
-        keys.publicKey, context->MakeCKKSPackedPlaintext(left));
+    auto left_plaintext = context->MakeCKKSPackedPlaintext(left);
+    auto left_ciphertext = context->Encrypt(keys.publicKey, left_plaintext);
     Ciphertext result;
     if (operation == "sum") {
         result = backend.sum(left_ciphertext, static_cast<int>(kBatchSize));
     } else {
-        auto right_ciphertext = context->Encrypt(
-            keys.publicKey, context->MakeCKKSPackedPlaintext(right));
+        auto right_plaintext = context->MakeCKKSPackedPlaintext(right);
+        auto right_ciphertext = context->Encrypt(keys.publicKey, right_plaintext);
         if (operation == "add") result = backend.add(left_ciphertext, right_ciphertext);
         else if (operation == "subtract") result = backend.subtract(left_ciphertext, right_ciphertext);
         else result = backend.multiply(left_ciphertext, right_ciphertext);
