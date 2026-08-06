@@ -75,6 +75,11 @@ build-openfhe-evaluator-cpu:
         - client/__init__.py
         - client/cpu_service_demo.py
         - openfhe_cpu/**/*
+    # Keep a manual recovery button when an earlier test failure prevented a
+    # CPU-related commit from ever reaching the build stage.
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      when: manual
+      allow_failure: true
   before_script:
     - mkdir -p "$HOME/.docker"
     - |
