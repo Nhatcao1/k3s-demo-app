@@ -36,10 +36,17 @@ def _print(payload: dict[str, Any]) -> None:
 
 def initialize(inputs: DemoInputs, store: SessionStore) -> None:
     expected_sum = Decimal(sum(inputs.salaries))
-    expected_kpi_amount = expected_sum * inputs.kpi
+    expected_kpi_amount = sum(
+        Decimal(salary) * kpi
+        for salary, kpi in zip(inputs.salaries, inputs.kpis)
+    )
     artifacts = create_initial_artifacts(
         inputs.salaries,
-        float(inputs.kpi) if inputs.scheme == "ckks" else inputs.kpi_scaled,
+        (
+            [float(value) for value in inputs.kpis]
+            if inputs.scheme == "ckks"
+            else inputs.kpis_scaled
+        ),
         inputs.wrap_key,
         inputs.session_id,
         inputs.scheme,
@@ -96,12 +103,13 @@ def multiply_session(session_id: str, store: SessionStore) -> None:
         completed_status="MULTIPLIED",
         required_artifacts=(
             CONTEXT,
-            SUM_CIPHERTEXT,
+            SALARY_CIPHERTEXT,
             KPI_CIPHERTEXT,
             MULTIPLICATION_EVALUATION_KEYS,
+            SUM_EVALUATION_KEYS,
         ),
         output_artifact=KPI_RESULT_CIPHERTEXT,
-        compute=lambda artifacts, _count: evaluate_multiply(artifacts),
+        compute=lambda artifacts, count: evaluate_multiply(artifacts, count),
     )
     _print(
         {

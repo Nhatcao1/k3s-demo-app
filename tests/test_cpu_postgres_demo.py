@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -12,19 +13,26 @@ DEMO_ROOT = Path(__file__).resolve().parents[1] / "demo" / "cpu-postgres"
 sys.path.insert(0, str(DEMO_ROOT))
 
 from cpu_postgres_demo import cli  # noqa: E402
-from cpu_postgres_demo.config import DemoConfigError, parse_kpi  # noqa: E402
+from cpu_postgres_demo.config import DemoConfigError, parse_salary_rows  # noqa: E402
 
 
-class KpiConfigTests(unittest.TestCase):
-    def test_kpi_accepts_demo_range(self) -> None:
-        self.assertEqual(parse_kpi({"DEMO_KPI": "0.8"}), Decimal("0.8"))
-        self.assertEqual(parse_kpi({"DEMO_KPI": "1.2"}), Decimal("1.2"))
+class SalaryCsvTests(unittest.TestCase):
+    def parse(self, content: str) -> tuple[tuple[int, ...], tuple[Decimal, ...]]:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "salaries.csv"
+            path.write_text(content, encoding="utf-8")
+            return parse_salary_rows({"DEMO_SALARIES_CSV": str(path)})
 
-    def test_kpi_rejects_values_outside_demo_range(self) -> None:
-        for value in ("0.79", "1.21"):
-            with self.subTest(value=value):
-                with self.assertRaisesRegex(DemoConfigError, "0.8 and 1.2"):
-                    parse_kpi({"DEMO_KPI": value})
+    def test_each_salary_has_its_own_allowed_kpi(self) -> None:
+        salaries, kpis = self.parse(
+            "salary,kpi\n10000000,0.8\n200000000,1.2\n"
+        )
+        self.assertEqual(salaries, (10_000_000, 200_000_000))
+        self.assertEqual(kpis, (Decimal("0.8"), Decimal("1.2")))
+
+    def test_rejects_kpi_outside_the_discrete_set(self) -> None:
+        with self.assertRaisesRegex(DemoConfigError, "must be 0.8"):
+            self.parse("salary,kpi\n10000000,0.85\n")
 
 
 class FakeStore:

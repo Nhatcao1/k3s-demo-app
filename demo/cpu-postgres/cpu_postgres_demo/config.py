@@ -19,8 +19,9 @@ from openfhe_cpu.runtime import BATCH_SIZE, BGV_PLAINTEXT_MODULUS
 SESSION_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 MIN_SALARY = 10_000_000
 MAX_SALARY = 200_000_000
-MIN_KPI = Decimal("0.8")
-MAX_KPI = Decimal("1.2")
+ALLOWED_KPIS = frozenset(
+    Decimal(value) for value in ("0.8", "0.9", "1.0", "1.1", "1.2")
+)
 
 
 class DemoConfigError(ValueError):
@@ -48,21 +49,26 @@ def parse_scheme(environment: Mapping[str, str]) -> str:
     return scheme
 
 
-def parse_salaries(environment: Mapping[str, str]) -> tuple[int, ...]:
+def parse_salary_rows(
+    environment: Mapping[str, str],
+) -> tuple[tuple[int, ...], tuple[Decimal, ...]]:
     path = Path(_required(environment, "DEMO_SALARIES_CSV"))
     try:
         rows = list(csv.reader(path.read_text(encoding="utf-8").splitlines()))
     except OSError as error:
         raise DemoConfigError(f"could not read salary CSV: {path}") from error
-    if rows and rows[0] == ["salary"]:
+    if rows and rows[0] == ["salary", "kpi"]:
         rows = rows[1:]
     if not rows or len(rows) > BATCH_SIZE:
         raise DemoConfigError(f"salary CSV must contain 1 to {BATCH_SIZE} rows")
 
     salaries: list[int] = []
+    kpis: list[Decimal] = []
     for number, row in enumerate(rows, start=2):
-        if len(row) != 1:
-            raise DemoConfigError(f"salary CSV row {number} must contain one value")
+        if len(row) != 2:
+            raise DemoConfigError(
+                f"salary CSV row {number} must contain salary and kpi"
+            )
         try:
             salary = int(row[0])
         except ValueError as error:
@@ -71,18 +77,17 @@ def parse_salaries(environment: Mapping[str, str]) -> tuple[int, ...]:
             raise DemoConfigError(
                 f"salary CSV row {number} must be between {MIN_SALARY} and {MAX_SALARY}"
             )
+        try:
+            kpi = Decimal(row[1])
+        except InvalidOperation as error:
+            raise DemoConfigError(f"salary CSV row {number} KPI is invalid") from error
+        if not kpi.is_finite() or kpi not in ALLOWED_KPIS:
+            raise DemoConfigError(
+                f"salary CSV row {number} KPI must be 0.8, 0.9, 1.0, 1.1 or 1.2"
+            )
         salaries.append(salary)
-    return tuple(salaries)
-
-
-def parse_kpi(environment: Mapping[str, str]) -> Decimal:
-    try:
-        kpi = Decimal(_required(environment, "DEMO_KPI"))
-    except InvalidOperation as error:
-        raise DemoConfigError("DEMO_KPI must be a decimal number") from error
-    if not kpi.is_finite() or not MIN_KPI <= kpi <= MAX_KPI:
-        raise DemoConfigError("DEMO_KPI must be between 0.8 and 1.2")
-    return kpi
+        kpis.append(kpi)
+    return tuple(salaries), tuple(kpis)
 
 
 def parse_positive_integer(
@@ -124,9 +129,9 @@ class DemoInputs:
     session_id: str
     scheme: str
     salaries: tuple[int, ...]
-    kpi: Decimal
+    kpis: tuple[Decimal, ...]
     kpi_scale: int
-    kpi_scaled: int
+    kpis_scaled: tuple[int, ...]
     bgv_plaintext_modulus: int
     wrap_key: bytes
     tolerance: float
@@ -137,28 +142,30 @@ class DemoInputs:
     ) -> "DemoInputs":
         selected = os.environ if environment is None else environment
         scheme = parse_scheme(selected)
-        salaries = parse_salaries(selected)
-        kpi = parse_kpi(selected)
+        salaries, kpis = parse_salary_rows(selected)
         kpi_scale = parse_positive_integer(selected, "DEMO_KPI_SCALE", 10)
-        scaled = kpi * kpi_scale
-        if scaled != scaled.to_integral_value():
-            raise DemoConfigError("DEMO_KPI must be exact at DEMO_KPI_SCALE")
-        kpi_scaled = int(scaled)
+        scaled = tuple(kpi * kpi_scale for kpi in kpis)
+        if any(value != value.to_integral_value() for value in scaled):
+            raise DemoConfigError("CSV KPI must be exact at DEMO_KPI_SCALE")
+        kpis_scaled = tuple(int(value) for value in scaled)
         modulus = parse_positive_integer(
             selected, "DEMO_BGV_PLAINTEXT_MODULUS", BGV_PLAINTEXT_MODULUS
         )
         if scheme == "bgv":
             if modulus.bit_length() > 60 or (modulus - 1) % (2 * BATCH_SIZE):
                 raise DemoConfigError("BGV plaintext modulus is not batch compatible")
-            if sum(salaries) * kpi_scaled >= modulus // 2:
+            weighted_total = sum(
+                salary * kpi for salary, kpi in zip(salaries, kpis_scaled)
+            )
+            if weighted_total >= modulus // 2:
                 raise DemoConfigError("BGV result would wrap around the plaintext modulus")
         return cls(
             session_id=parse_session_id(selected),
             scheme=scheme,
             salaries=salaries,
-            kpi=kpi,
+            kpis=kpis,
             kpi_scale=kpi_scale,
-            kpi_scaled=kpi_scaled,
+            kpis_scaled=kpis_scaled,
             bgv_plaintext_modulus=modulus,
             wrap_key=parse_wrap_key(selected),
             tolerance=parse_tolerance(selected),

@@ -33,7 +33,7 @@ def _serialize(openfhe: Any, path: Path, value: Any) -> bytes:
 
 def create_initial_artifacts(
     salaries: Sequence[int],
-    kpi: float | int,
+    kpis: Sequence[float | int],
     wrapping_key: bytes,
     session_id: str,
     scheme: str,
@@ -52,11 +52,13 @@ def create_initial_artifacts(
             [float(value) for value in salaries]
         )
         kpi_plaintext = context.MakeCKKSPackedPlaintext(
-            [float(kpi)] * len(salaries)
+            [float(value) for value in kpis]
         )
     else:
         salary_plaintext = context.MakePackedPlaintext(list(salaries))
-        kpi_plaintext = context.MakePackedPlaintext([int(kpi)] * len(salaries))
+        kpi_plaintext = context.MakePackedPlaintext(
+            [int(value) for value in kpis]
+        )
     salary_ciphertext = context.Encrypt(keys.publicKey, salary_plaintext)
     kpi_ciphertext = context.Encrypt(keys.publicKey, kpi_plaintext)
 
@@ -100,17 +102,25 @@ def evaluate_sum(artifacts: dict[str, bytes], valid_count: int) -> bytes:
     )
 
 
-def evaluate_multiply(artifacts: dict[str, bytes]) -> bytes:
-    from .artifacts import SUM_CIPHERTEXT
-
-    return OpenFHEPythonBackend().evaluate(
+def evaluate_multiply(artifacts: dict[str, bytes], valid_count: int) -> bytes:
+    backend = OpenFHEPythonBackend()
+    weighted_salaries = backend.evaluate(
         "multiply",
         artifacts[CONTEXT],
-        artifacts[SUM_CIPHERTEXT],
+        artifacts[SALARY_CIPHERTEXT],
         artifacts[KPI_CIPHERTEXT],
         None,
         artifacts[MULTIPLICATION_EVALUATION_KEYS],
         None,
+    )
+    return backend.evaluate(
+        "sum",
+        artifacts[CONTEXT],
+        weighted_salaries,
+        None,
+        None,
+        artifacts[SUM_EVALUATION_KEYS],
+        valid_count,
     )
 
 
