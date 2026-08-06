@@ -83,9 +83,11 @@ docker.io/dockerboi99/he_k8s:gpu-latest
 ```
 
 The CPU image contains only standard `openfhe-python` and starts `python -m
-api.app`. The GPU image is built separately from `gpu/Dockerfile` and contains
-FIDESlib plus its patched OpenFHE. Neither runtime is copied into the other
-image.
+api.app`. It also contains NumPy and Pandas so the same CPU image can be used
+as the non-GPU client for an in-cluster comparison Job; the evaluator service
+does not import them. The GPU image is built separately from `gpu/Dockerfile`
+and contains FIDESlib plus its patched OpenFHE. Neither HE runtime is copied
+into the other image.
 
 Both image pushes require masked project CI/CD variables
 `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. The Docker Hub token needs

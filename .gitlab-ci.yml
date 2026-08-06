@@ -47,7 +47,9 @@ validate-files:
     - test -f gpu/worker/src/fides_backend.cpp
     - test -f gpu/worker/src/fides_backend.hpp
     - grep -Fq 'openfhe==1.5.1.0.24.4' requirements.txt
-    - test "$(wc -l < requirements.txt)" -eq 1
+    - grep -Fq 'numpy>=2.0,<3' requirements.txt
+    - grep -Fq 'pandas>=2.2,<3' requirements.txt
+    - test "$(wc -l < requirements.txt)" -eq 3
     - echo "Required CPU OpenFHE evaluator files exist."
 
 test-he:
