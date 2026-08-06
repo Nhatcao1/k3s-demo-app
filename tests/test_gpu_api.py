@@ -178,7 +178,7 @@ class GpuContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             worker = Path(directory) / "fake-demo-worker"
             worker.write_text(
-                "#!/bin/sh\nprintf '%s\\n' "
+                "#!/bin/sh\nprintf '%s\\n' 'GPU 0: Tesla T4'\nprintf '%s\\n' "
                 "'{\"operation\":\"sum\",\"values\":[36.0]}'\n",
                 encoding="utf-8",
             )

@@ -265,11 +265,25 @@ class NativeDemoBackend:
                 worker_error[:8192],
             )
             raise RequestError("native FIDESlib demo rejected the request")
-        try:
-            payload = json.loads(completed.stdout)
-            values = payload["values"]
-        except (json.JSONDecodeError, KeyError, TypeError) as error:
-            raise RuntimeError("native FIDESlib demo returned invalid output") from error
+        # FIDESlib prints CUDA device information to stdout before the demo's
+        # JSON result. Read the final JSON object instead of requiring stdout
+        # to contain JSON and nothing else.
+        payload = None
+        for line in reversed(completed.stdout.splitlines()):
+            try:
+                candidate = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                payload = candidate
+                break
+        if payload is None or "values" not in payload:
+            LOGGER.error(
+                "native FIDESlib demo returned no JSON result: %s",
+                completed.stdout[-8192:],
+            )
+            raise RuntimeError("native FIDESlib demo returned invalid output")
+        values = payload["values"]
         if not isinstance(values, list) or not all(
             isinstance(value, (int, float)) and not isinstance(value, bool)
             for value in values
