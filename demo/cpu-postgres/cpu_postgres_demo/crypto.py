@@ -114,15 +114,17 @@ def evaluate_multiply(artifacts: dict[str, bytes]) -> bytes:
     )
 
 
-def decrypt_final_result(
-    artifacts: dict[str, bytes], wrapping_key: bytes, session_id: str, scheme: str
+def decrypt_result(
+    artifacts: dict[str, bytes],
+    result_artifact: str,
+    wrapping_key: bytes,
+    session_id: str,
+    scheme: str,
 ) -> float | int:
     try:
         import openfhe
     except (ImportError, OSError) as error:
         raise CryptoError("OpenFHE-Python is not available") from error
-
-    from .artifacts import KPI_RESULT_CIPHERTEXT
 
     with tempfile.TemporaryDirectory(prefix="he-session-verify-") as directory:
         root = Path(directory)
@@ -135,7 +137,7 @@ def decrypt_final_result(
                 artifacts[WRAPPED_SECRET_KEY], wrapping_key, session_id
             )
         )
-        result_path.write_bytes(artifacts[KPI_RESULT_CIPHERTEXT])
+        result_path.write_bytes(artifacts[result_artifact])
 
         openfhe.ReleaseAllContexts()
         context, context_ok = openfhe.DeserializeCryptoContext(

@@ -19,6 +19,8 @@ from openfhe_cpu.runtime import BATCH_SIZE, BGV_PLAINTEXT_MODULUS
 SESSION_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 MIN_SALARY = 10_000_000
 MAX_SALARY = 200_000_000
+MIN_KPI = Decimal("0.8")
+MAX_KPI = Decimal("1.2")
 
 
 class DemoConfigError(ValueError):
@@ -78,8 +80,8 @@ def parse_kpi(environment: Mapping[str, str]) -> Decimal:
         kpi = Decimal(_required(environment, "DEMO_KPI"))
     except InvalidOperation as error:
         raise DemoConfigError("DEMO_KPI must be a decimal number") from error
-    if not kpi.is_finite() or not Decimal("0") < kpi <= Decimal("1"):
-        raise DemoConfigError("DEMO_KPI must be greater than 0 and at most 1")
+    if not kpi.is_finite() or not MIN_KPI <= kpi <= MAX_KPI:
+        raise DemoConfigError("DEMO_KPI must be between 0.8 and 1.2")
     return kpi
 
 

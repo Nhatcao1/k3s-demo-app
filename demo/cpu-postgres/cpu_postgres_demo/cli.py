@@ -23,7 +23,7 @@ from .artifacts import (
 from .config import DemoInputs, parse_session_id, parse_wrap_key
 from .crypto import (
     create_initial_artifacts,
-    decrypt_final_result,
+    decrypt_result,
     evaluate_multiply,
     evaluate_sum,
 )
@@ -35,7 +35,8 @@ def _print(payload: dict[str, Any]) -> None:
 
 
 def initialize(inputs: DemoInputs, store: SessionStore) -> None:
-    expected_amount = Decimal(sum(inputs.salaries)) * inputs.kpi
+    expected_sum = Decimal(sum(inputs.salaries))
+    expected_kpi_amount = expected_sum * inputs.kpi
     artifacts = create_initial_artifacts(
         inputs.salaries,
         float(inputs.kpi) if inputs.scheme == "ckks" else inputs.kpi_scaled,
@@ -49,7 +50,8 @@ def initialize(inputs: DemoInputs, store: SessionStore) -> None:
         inputs.scheme,
         len(inputs.salaries),
         inputs.kpi_scale,
-        expected_amount,
+        expected_sum,
+        expected_kpi_amount,
         artifacts,
     )
     _print(
@@ -112,28 +114,47 @@ def multiply_session(session_id: str, store: SessionStore) -> None:
     )
 
 
-def verify_session(inputs: DemoInputs, store: SessionStore) -> None:
-    artifacts = store.verification_artifacts(inputs.session_id)
-    expected_amount = store.expected_amount(inputs.session_id)
-    observed = decrypt_final_result(
-        artifacts, inputs.wrap_key, inputs.session_id, inputs.scheme
+def verify_session(inputs: DemoInputs, store: SessionStore, stage: str) -> None:
+    result_artifact = (
+        SUM_CIPHERTEXT if stage == "sum" else KPI_RESULT_CIPHERTEXT
+    )
+    artifacts = store.verification_artifacts(
+        inputs.session_id, result_artifact
+    )
+    expected_sum, expected_kpi_amount = store.expected_values(inputs.session_id)
+    expected_value = expected_sum if stage == "sum" else expected_kpi_amount
+    observed = decrypt_result(
+        artifacts,
+        result_artifact,
+        inputs.wrap_key,
+        inputs.session_id,
+        inputs.scheme,
     )
     if inputs.scheme == "bgv":
-        expected_scaled = int(expected_amount * inputs.kpi_scale)
-        passed = int(observed) == expected_scaled
-        decrypted_amount = Decimal(int(observed)) / Decimal(inputs.kpi_scale)
+        encoded_expected = (
+            int(expected_value)
+            if stage == "sum"
+            else int(expected_value * inputs.kpi_scale)
+        )
+        passed = int(observed) == encoded_expected
+        decrypted_value = (
+            Decimal(int(observed))
+            if stage == "sum"
+            else Decimal(int(observed)) / Decimal(inputs.kpi_scale)
+        )
     else:
-        expected_float = float(expected_amount)
+        expected_float = float(expected_value)
         passed = abs(float(observed) - expected_float) <= (
             max(1.0, abs(expected_float)) * inputs.tolerance
         )
-        decrypted_amount = Decimal(str(float(observed)))
-    absolute_error = abs(decrypted_amount - expected_amount)
-    if passed:
-        store.mark_verified(inputs.session_id, decrypted_amount, absolute_error)
+        decrypted_value = Decimal(str(float(observed)))
+    absolute_error = abs(decrypted_value - expected_value)
+    store.record_verification(
+        inputs.session_id, stage, decrypted_value, absolute_error, passed
+    )
     _print(
         {
-            "command": "verify",
+            "command": f"verify-{stage}",
             "session_id": inputs.session_id,
             "scheme": inputs.scheme,
             "status": "PASS" if passed else "FAIL",
@@ -168,7 +189,8 @@ def main() -> None:
             "initialize",
             "sum",
             "multiply",
-            "verify",
+            "verify-sum",
+            "verify-kpi",
             "inspect",
             "show-secret-key",
         ),
@@ -192,13 +214,15 @@ def main() -> None:
         multiply_session(session_id, store)
         return
 
-    # Only the trusted initialize and verify Jobs receive the Kubernetes
+    # Only the trusted initialize and verification Jobs receive the Kubernetes
     # Secret containing plaintext demo inputs and the wrapping key.
     inputs = DemoInputs.from_environment()
     if args.command == "initialize":
         initialize(inputs, store)
+    elif args.command == "verify-sum":
+        verify_session(inputs, store, "sum")
     else:
-        verify_session(inputs, store)
+        verify_session(inputs, store, "kpi")
 
 
 if __name__ == "__main__":

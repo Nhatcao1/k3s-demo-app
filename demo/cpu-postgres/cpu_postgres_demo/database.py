@@ -65,7 +65,8 @@ class SessionStore:
         scheme: str,
         valid_count: int,
         kpi_scale: int,
-        expected_amount: Decimal,
+        expected_sum: Decimal,
+        expected_kpi_amount: Decimal,
         artifacts: dict[str, bytes],
     ) -> None:
         validate_initial_artifacts(artifacts)
@@ -81,10 +82,11 @@ class SessionStore:
                 )
                 cursor.execute(
                     """
-                    INSERT INTO he_demo_results (session_id, expected_amount)
-                    VALUES (%s, %s)
+                    INSERT INTO he_demo_results
+                        (session_id, expected_sum, expected_kpi_amount)
+                    VALUES (%s, %s, %s)
                     """,
-                    (session_id, expected_amount),
+                    (session_id, expected_sum, expected_kpi_amount),
                 )
                 for name, payload in artifacts.items():
                     cursor.execute(
@@ -169,10 +171,25 @@ class SessionStore:
                 )
                 return OperationResult(output, reused=False)
 
-    def verification_artifacts(self, session_id: str) -> dict[str, bytes]:
-        from .artifacts import CONTEXT, KPI_RESULT_CIPHERTEXT, WRAPPED_SECRET_KEY
+    def verification_artifacts(
+        self, session_id: str, result_artifact: str
+    ) -> dict[str, bytes]:
+        from .artifacts import (
+            CONTEXT,
+            KPI_RESULT_CIPHERTEXT,
+            SUM_CIPHERTEXT,
+            WRAPPED_SECRET_KEY,
+        )
 
-        names = (CONTEXT, KPI_RESULT_CIPHERTEXT, WRAPPED_SECRET_KEY)
+        allowed_statuses = {
+            SUM_CIPHERTEXT: ("SUMMED", "MULTIPLIED", "VERIFIED"),
+            KPI_RESULT_CIPHERTEXT: ("MULTIPLIED", "VERIFIED"),
+        }
+        if result_artifact not in allowed_statuses:
+            raise SessionStoreError(
+                f"artifact is not a verifiable result: {result_artifact}"
+            )
+        names = (CONTEXT, result_artifact, WRAPPED_SECRET_KEY)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -185,18 +202,19 @@ class SessionStore:
                 row = cursor.fetchone()
                 if row is None:
                     raise SessionStoreError(f"session does not exist: {session_id}")
-                if str(row[0]) not in ("MULTIPLIED", "VERIFIED"):
+                if str(row[0]) not in allowed_statuses[result_artifact]:
                     raise SessionStoreError(
-                        f"verify requires MULTIPLIED, current status is {row[0]}"
+                        f"cannot verify {result_artifact} at status {row[0]}"
                     )
                 return self._load_many(cursor, session_id, names)
 
-    def expected_amount(self, session_id: str) -> Decimal:
+    def expected_values(self, session_id: str) -> tuple[Decimal, Decimal]:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT expected_amount FROM he_demo_results
+                    SELECT expected_sum, expected_kpi_amount
+                    FROM he_demo_results
                     WHERE session_id = %s
                     """,
                     (session_id,),
@@ -206,51 +224,88 @@ class SessionStore:
                     raise SessionStoreError(
                         f"session result is missing: {session_id}"
                     )
-                return Decimal(row[0])
+                if row[0] is None or row[1] is None:
+                    raise SessionStoreError(
+                        f"session expected values are incomplete: {session_id}"
+                    )
+                return Decimal(row[0]), Decimal(row[1])
 
-    def mark_verified(
+    def record_verification(
         self,
         session_id: str,
-        decrypted_amount: Decimal,
+        stage: str,
+        decrypted_value: Decimal,
         absolute_error: Decimal,
-    ) -> bool:
+        passed: bool,
+    ) -> None:
+        if stage not in ("sum", "kpi"):
+            raise SessionStoreError(f"unknown verification stage: {stage}")
+        operation = "verify_sum" if stage == "sum" else "verify_kpi"
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    UPDATE he_demo_sessions
-                    SET status = 'VERIFIED', updated_at = now()
-                    WHERE session_id = %s
-                      AND status IN ('MULTIPLIED', 'VERIFIED')
-                    RETURNING session_id
-                    """,
-                    (session_id,),
-                )
-                changed = cursor.fetchone() is not None
-                if changed:
+                if stage == "sum":
                     cursor.execute(
                         """
                         UPDATE he_demo_results
-                        SET decrypted_amount = %s, absolute_error = %s,
+                        SET decrypted_sum = %s, sum_absolute_error = %s,
                             updated_at = now()
                         WHERE session_id = %s
                         """,
-                        (decrypted_amount, absolute_error, session_id),
+                        (decrypted_value, absolute_error, session_id),
                     )
-                    if cursor.rowcount != 1:
-                        raise SessionStoreError(
-                            f"session result is missing: {session_id}"
-                        )
+                else:
                     cursor.execute(
                         """
-                        INSERT INTO he_demo_operations
-                            (session_id, operation, outcome)
-                        VALUES (%s, 'verify', 'COMPLETED')
-                        ON CONFLICT (session_id, operation) DO NOTHING
+                        UPDATE he_demo_results
+                        SET decrypted_kpi_amount = %s,
+                            kpi_absolute_error = %s,
+                            updated_at = now()
+                        WHERE session_id = %s
+                        """,
+                        (decrypted_value, absolute_error, session_id),
+                    )
+                if cursor.rowcount != 1:
+                    raise SessionStoreError(
+                        f"session result is missing: {session_id}"
+                    )
+                if stage == "sum":
+                    cursor.execute(
+                        """
+                        UPDATE he_demo_sessions
+                        SET updated_at = now()
+                        WHERE session_id = %s
+                          AND status IN ('SUMMED', 'MULTIPLIED', 'VERIFIED')
+                        RETURNING session_id
                         """,
                         (session_id,),
                     )
-                return changed
+                else:
+                    cursor.execute(
+                        """
+                        UPDATE he_demo_sessions
+                        SET status = CASE WHEN %s THEN 'VERIFIED' ELSE status END,
+                            updated_at = now()
+                        WHERE session_id = %s
+                          AND status IN ('MULTIPLIED', 'VERIFIED')
+                        RETURNING session_id
+                        """,
+                        (passed, session_id),
+                    )
+                if cursor.fetchone() is None:
+                    raise SessionStoreError(
+                        f"cannot verify {stage} at the current session status"
+                    )
+                cursor.execute(
+                    """
+                    INSERT INTO he_demo_operations
+                        (session_id, operation, outcome)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (session_id, operation)
+                    DO UPDATE SET outcome = EXCLUDED.outcome,
+                                  completed_at = now()
+                    """,
+                    (session_id, operation, "PASSED" if passed else "FAILED"),
+                )
 
     def inspect(self, session_id: str) -> dict[str, Any]:
         with self._connect() as connection:
@@ -258,8 +313,10 @@ class SessionStore:
                 cursor.execute(
                     """
                     SELECT s.scheme, s.status, s.valid_count, s.kpi_scale,
-                           r.expected_amount, r.decrypted_amount,
-                           r.absolute_error, s.created_at, s.updated_at
+                           r.expected_sum, r.decrypted_sum,
+                           r.sum_absolute_error, r.expected_kpi_amount,
+                           r.decrypted_kpi_amount, r.kpi_absolute_error,
+                           s.created_at, s.updated_at
                     FROM he_demo_sessions AS s
                     JOIN he_demo_results AS r USING (session_id)
                     WHERE s.session_id = %s
@@ -288,13 +345,24 @@ class SessionStore:
                     "status": row[1],
                     "valid_count": row[2],
                     "kpi_scale": row[3],
-                    "expected_amount": None if row[4] is None else str(row[4]),
-                    "decrypted_amount": (
+                    "expected_sum": None if row[4] is None else str(row[4]),
+                    "decrypted_sum": (
                         None if row[5] is None else str(row[5])
                     ),
-                    "absolute_error": None if row[6] is None else str(row[6]),
-                    "created_at": row[7].isoformat(),
-                    "updated_at": row[8].isoformat(),
+                    "sum_absolute_error": (
+                        None if row[6] is None else str(row[6])
+                    ),
+                    "expected_kpi_amount": (
+                        None if row[7] is None else str(row[7])
+                    ),
+                    "decrypted_kpi_amount": (
+                        None if row[8] is None else str(row[8])
+                    ),
+                    "kpi_absolute_error": (
+                        None if row[9] is None else str(row[9])
+                    ),
+                    "created_at": row[10].isoformat(),
+                    "updated_at": row[11].isoformat(),
                     "artifacts": artifacts,
                 }
 
