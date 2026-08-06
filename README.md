@@ -76,14 +76,18 @@ Contract tests require no HE installation. On the default branch, GitLab CI
 builds and pushes:
 
 ```text
-docker.io/dockerboi99/he_k8s:cpu-<full-commit-sha>
+docker.io/dockerboi99/he_k8s:cpu-<short-commit-sha>
 docker.io/dockerboi99/he_k8s:cpu-latest
-docker.io/dockerboi99/he_k8s:gpu-<full-commit-sha>
+docker.io/dockerboi99/he_k8s:gpu-<short-commit-sha>
 docker.io/dockerboi99/he_k8s:gpu-latest
 ```
 
-The CPU image contains only standard `openfhe-python` and starts `python -m
-api.app`. It also contains NumPy and Pandas so the same CPU image can be used
+Deploy the commit tag on cached or mirrored registries. `latest` is only a
+convenience alias; it is not a reliable deployment identity because a mirror
+may continue serving an older digest for the moving tag.
+
+The CPU image uses standard `openfhe-python` and starts `python -m api.app`.
+It also contains NumPy and Pandas so the same CPU image can be used
 as the non-GPU client for an in-cluster comparison Job; the evaluator service
 does not import them. The GPU image is built separately from `gpu/Dockerfile`
 and contains FIDESlib plus its patched OpenFHE. Neither HE runtime is copied
