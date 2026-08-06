@@ -12,8 +12,9 @@ Add masked CI/CD variables `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` to the
 `k3s-demo-app` GitLab project. The GPU job is skipped until both exist.
 
 The image exposes the same `/v1/evaluate` HTTP shape as the CPU evaluator for
-`add`, `subtract`, `multiply`, and `sum`. Its Python adapter only validates and
-stages binary artifacts; all HE operations execute in the C++ FIDESlib worker.
+`add`, `subtract`, `multiply`, `square`, `sum`, and `mean`. Its Python adapter
+only validates and stages binary artifacts; all HE operations execute in the
+C++ FIDESlib worker.
 Because FIDESlib loads GPU evaluation keys using the public key, GPU requests
 also include `public_key`. The API advertises this in `/v1/capabilities`.
 

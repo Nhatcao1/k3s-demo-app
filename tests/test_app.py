@@ -65,8 +65,10 @@ def primitive_payload(operation: str = "add") -> dict[str, object]:
         "ciphertext_a": encoded(b"left"),
         "ciphertext_b": encoded(b"right"),
     }
-    if operation == "multiply":
+    if operation in ("multiply", "square"):
         payload["evaluation_keys"] = encoded(b"mult-keys")
+    if operation == "square":
+        del payload["ciphertext_b"]
     return payload
 
 
@@ -105,6 +107,31 @@ class EvaluateRequestTests(unittest.TestCase):
             ("sum", b"context", b"values", None, b"sum-keys", 8192),
         )
         self.assertEqual(result["request_id"], "sum-8192")
+
+    def test_square_is_unary_and_uses_multiplication_keys(self) -> None:
+        evaluator = FakeEvaluator()
+        evaluate_request(primitive_payload("square"), evaluator)
+        self.assertEqual(
+            evaluator.received,
+            ("square", b"context", b"left", None, b"mult-keys", None),
+        )
+
+    def test_mean_uses_rotation_keys_and_valid_count(self) -> None:
+        evaluator = FakeEvaluator()
+        evaluate_request(
+            {
+                "operation": "mean",
+                "context": encoded(b"context"),
+                "ciphertext_a": encoded(b"values"),
+                "evaluation_keys": encoded(b"rotation-keys"),
+                "valid_count": 4,
+            },
+            evaluator,
+        )
+        self.assertEqual(
+            evaluator.received,
+            ("mean", b"context", b"values", None, b"rotation-keys", 4),
+        )
 
     def test_rejects_secret_key(self) -> None:
         payload = primitive_payload()
@@ -160,7 +187,10 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(self.get_json("/readyz")[0], 200)
         status, payload = self.get_json("/v1/capabilities")
         self.assertEqual(status, 200)
-        self.assertEqual(payload["operations"], ["add", "subtract", "multiply", "sum"])
+        self.assertEqual(
+            payload["operations"],
+            ["add", "subtract", "multiply", "square", "sum", "mean"],
+        )
         self.assertEqual(payload["backend"], "test-backend")
         self.assertFalse(payload["secret_key_required_by_api"])
 

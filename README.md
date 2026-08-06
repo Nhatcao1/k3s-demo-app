@@ -4,7 +4,8 @@ This repository now builds one secretless **CPU OpenFHE evaluator**. The first
 scope is intentionally small:
 
 - primitives: `add`, `subtract`, `multiply`;
-- reduction: `sum`.
+- unary: `square`;
+- reductions: `sum`, `mean`.
 
 The API accepts serialized CKKS context, evaluation keys when required, and
 ciphertexts. It never accepts plaintext or a secret key and returns only a
@@ -20,11 +21,10 @@ CPU image/process                    CUDA GPU image/process
 
 Do not install or link standard OpenFHE and FIDESlib's patched OpenFHE in the
 same image or process. Both images are built from this repository, but remain
-independent processes. The GPU worker has an in-memory primitive/SUM backend.
-Remote ciphertext transport is not claimed until a FIDESlib-compatible
-serialization adapter is implemented and passes the server tests.
+independent processes. The GPU worker receives serialized artifacts through
+its HTTP adapter and performs the HE operations in native FIDESlib C++.
 
-The small operation list is in `common/operations.py`. The four explicit
+The small operation list is in `common/operations.py`. The six explicit
 CPU defaults and direct functions live in `openfhe_cpu/runtime.py`, and the
 serialized evaluator adapter lives in `backends/openfhe_python.py`. The
 matching FIDESlib methods live in `gpu/worker/src/fides_backend.cpp`. The HTTP
@@ -51,8 +51,8 @@ Primitive request:
 }
 ```
 
-`multiply` also requires `evaluation_keys` containing serialized EvalMult
-keys. A SUM request uses one ciphertext:
+`multiply` and `square` require `evaluation_keys` containing serialized
+EvalMult keys. `sum` and `mean` use one ciphertext plus rotation keys:
 
 ```json
 {
@@ -67,6 +67,8 @@ keys. A SUM request uses one ciphertext:
 
 For data larger than one CKKS batch, the trusted client encrypts chunks, calls
 `sum` for each chunk, then combines the encrypted partial scalars with `add`.
+See `docs/he-main-api-function-matrix.md` for the complete function/key table
+and the next implementation order.
 
 ## GitLab pipeline
 

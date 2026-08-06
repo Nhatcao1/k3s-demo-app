@@ -25,6 +25,28 @@ class FidesSourceContractTests(unittest.TestCase):
                 "Plaintext before calling FIDESlib Encrypt()",
             )
 
+    def test_main_backend_calls_methods_exposed_by_pinned_fideslib(self) -> None:
+        backend = (
+            REPOSITORY / "gpu" / "worker" / "src" / "fides_backend.cpp"
+        ).read_text(encoding="utf-8")
+        public_api = (
+            REPOSITORY
+            / "gpu"
+            / "third_party"
+            / "FIDESlib"
+            / "api"
+            / "CryptoContext.hpp"
+        ).read_text(encoding="utf-8")
+        for method in (
+            "EvalAdd",
+            "EvalSub",
+            "EvalMult",
+            "EvalSquare",
+            "AccumulateSum",
+        ):
+            self.assertIn(f"{method}(", backend)
+            self.assertIn(f"{method}(", public_api)
+
 
 if __name__ == "__main__":
     unittest.main()

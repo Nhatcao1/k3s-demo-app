@@ -17,6 +17,7 @@ from common.operations import (
     OPERATIONS,
     needs_evaluation_keys,
     needs_right_ciphertext,
+    needs_valid_count,
     validate_operation,
 )
 
@@ -125,7 +126,7 @@ def evaluate_request(
     if needs_right_ciphertext(operation):
         ciphertext_b = _decode_artifact(payload, "ciphertext_b")
     elif "ciphertext_b" in payload:
-        raise RequestError("sum does not accept ciphertext_b")
+        raise RequestError(f"{operation} does not accept ciphertext_b")
 
     evaluation_keys = None
     if needs_evaluation_keys(operation):
@@ -134,13 +135,15 @@ def evaluate_request(
         raise RequestError(f"{operation} does not accept evaluation_keys")
 
     valid_count = payload.get("valid_count")
-    if operation == "sum":
+    if needs_valid_count(operation):
         if (
             isinstance(valid_count, bool)
             or not isinstance(valid_count, int)
             or valid_count < 1
         ):
-            raise RequestError("valid_count must be a positive integer for sum")
+            raise RequestError(
+                f"valid_count must be a positive integer for {operation}"
+            )
     elif "valid_count" in payload:
         raise RequestError(f"{operation} does not accept valid_count")
 

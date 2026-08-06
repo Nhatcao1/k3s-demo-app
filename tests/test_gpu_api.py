@@ -94,8 +94,10 @@ def primitive_payload(operation: str = "add") -> dict[str, object]:
         "ciphertext_a": encoded(b"left"),
         "ciphertext_b": encoded(b"right"),
     }
-    if operation == "multiply":
+    if operation in ("multiply", "square"):
         payload["evaluation_keys"] = encoded(b"mult-keys")
+    if operation == "square":
+        del payload["ciphertext_b"]
     return payload
 
 
@@ -132,6 +134,38 @@ class GpuContractTests(unittest.TestCase):
             metadata = Path(str(context_path) + ".dev").read_text(encoding="utf-8")
         self.assertIn("RotationIndexes: { 1 2 3 4 8 12 16 }", metadata)
         self.assertIn("KeyDist: 1", metadata)
+
+    def test_mean_uses_rotation_keys_and_valid_count(self) -> None:
+        evaluator = FakeGpuEvaluator()
+        evaluate_request(
+            {
+                "operation": "mean",
+                "context": encoded(b"context"),
+                "public_key": encoded(b"public-key"),
+                "ciphertext_a": encoded(b"values"),
+                "evaluation_keys": encoded(b"rotation-keys"),
+                "valid_count": 17,
+            },
+            evaluator,
+        )
+        self.assertEqual(
+            evaluator.received,
+            (
+                "mean", b"context", b"public-key", b"values", None,
+                b"rotation-keys", 17,
+            ),
+        )
+
+    def test_square_is_unary_and_uses_multiplication_keys(self) -> None:
+        evaluator = FakeGpuEvaluator()
+        evaluate_request(primitive_payload("square"), evaluator)
+        self.assertEqual(
+            evaluator.received,
+            (
+                "square", b"context", b"public-key", b"left", None,
+                b"mult-keys", None,
+            ),
+        )
 
     def test_worker_adapter_stages_artifacts_and_reads_result(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -242,6 +276,14 @@ class GpuHttpTests(unittest.TestCase):
         with urlopen(self.base_url + "/v1/capabilities", timeout=2) as response:
             payload = json.load(response)
         self.assertEqual(payload["backend"], "gpu-fides-test")
+        self.assertEqual(
+            payload["operations"],
+            ["add", "subtract", "multiply", "square", "sum", "mean"],
+        )
+        self.assertEqual(
+            payload["native_demo_operations"],
+            ["add", "subtract", "multiply", "sum"],
+        )
         self.assertTrue(payload["public_key_required_by_api"])
         self.assertFalse(payload["secret_key_required_by_api"])
 

@@ -115,7 +115,8 @@ int main(int argc, char** argv) {
         const auto& output_path = required(arguments, "output");
 
         if (operation != "add" && operation != "subtract" &&
-            operation != "multiply" && operation != "sum") {
+            operation != "multiply" && operation != "square" &&
+            operation != "sum" && operation != "mean") {
             throw std::invalid_argument("unsupported operation");
         }
 
@@ -133,13 +134,15 @@ int main(int argc, char** argv) {
             throw std::runtime_error("could not deserialize public key");
         }
 
-        if (operation == "multiply" || operation == "sum") {
+        if (operation == "multiply" || operation == "square" ||
+            operation == "sum" || operation == "mean") {
             std::ifstream evaluation_keys(
                 required(arguments, "evaluation-keys"), std::ios::binary);
             if (!evaluation_keys) {
                 throw std::runtime_error("could not open evaluation keys");
             }
-            const bool loaded = operation == "multiply"
+            const bool loaded =
+                (operation == "multiply" || operation == "square")
                 ? context->DeserializeEvalMultKey(evaluation_keys, fideslib::BINARY)
                 : context->DeserializeEvalAutomorphismKey(
                       evaluation_keys, fideslib::BINARY);
@@ -155,9 +158,13 @@ int main(int argc, char** argv) {
         const auto left = load_ciphertext(left_path, context);
         FidesCiphertext result;
 
-        if (operation == "sum") {
+        if (operation == "sum" || operation == "mean") {
             const int valid_count = std::stoi(required(arguments, "valid-count"));
-            result = backend.sum(left, valid_count);
+            result = operation == "sum"
+                ? backend.sum(left, valid_count)
+                : backend.mean(left, valid_count);
+        } else if (operation == "square") {
+            result = backend.square(left);
         } else {
             const auto right = load_ciphertext(required(arguments, "right"), context);
             if (operation == "add") {

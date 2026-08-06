@@ -47,6 +47,15 @@ fideslib::Ciphertext<fideslib::DCRTPoly> FidesBackend::multiply(
     return context_->EvalMult(left, right);
 }
 
+fideslib::Ciphertext<fideslib::DCRTPoly> FidesBackend::square(
+    const fideslib::Ciphertext<fideslib::DCRTPoly>& encrypted) const {
+    if (!encrypted) {
+        throw std::invalid_argument("square requires one ciphertext");
+    }
+    // Native FIDESlib ciphertext square; main.cpp loads relinearization keys.
+    return context_->EvalSquare(encrypted);
+}
+
 fideslib::Ciphertext<fideslib::DCRTPoly> FidesBackend::sum(
     const fideslib::Ciphertext<fideslib::DCRTPoly>& encrypted,
     int valid_count) const {
@@ -58,6 +67,21 @@ fideslib::Ciphertext<fideslib::DCRTPoly> FidesBackend::sum(
     }
     // Reduce only the valid packed slots; rotation keys are loaded by main.cpp.
     return context_->AccumulateSum(encrypted, valid_count);
+}
+
+fideslib::Ciphertext<fideslib::DCRTPoly> FidesBackend::mean(
+    const fideslib::Ciphertext<fideslib::DCRTPoly>& encrypted,
+    int valid_count) const {
+    if (!encrypted) {
+        throw std::invalid_argument("mean requires one ciphertext");
+    }
+    if (valid_count < 1) {
+        throw std::invalid_argument("valid_count must be positive for mean");
+    }
+    // Keep the data encrypted: rotate/add valid slots, then multiply by the
+    // public scalar 1/n. No secret key or plaintext vector enters this worker.
+    auto encrypted_sum = context_->AccumulateSum(encrypted, valid_count);
+    return context_->EvalMult(encrypted_sum, 1.0 / valid_count);
 }
 
 }  // namespace he_gpu

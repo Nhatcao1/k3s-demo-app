@@ -91,8 +91,17 @@ def multiply(context: Any, left: Any, right: Any) -> Any:
     return context.EvalMult(left, right)
 
 
+def square(context: Any, encrypted: Any) -> Any:
+    return context.EvalSquare(encrypted)
+
+
 def sum_slots(context: Any, encrypted: Any, valid_count: int) -> Any:
     return context.EvalSum(encrypted, valid_count)
+
+
+def mean_slots(context: Any, encrypted: Any, valid_count: int) -> Any:
+    encrypted_sum = sum_slots(context, encrypted, valid_count)
+    return context.EvalMult(encrypted_sum, 1.0 / valid_count)
 
 
 class OpenFHECPU:
@@ -142,7 +151,15 @@ class OpenFHECPU:
     def multiply(self, left: Any, right: Any) -> Any:
         return multiply(self._context, left, right)
 
+    def square(self, encrypted: Any) -> Any:
+        return square(self._context, encrypted)
+
     def sum(self, encrypted: Any, valid_count: int) -> Any:
         if not 1 <= valid_count <= BATCH_SIZE:
             raise ValueError(f"valid_count must be in [1, {BATCH_SIZE}]")
         return sum_slots(self._context, encrypted, valid_count)
+
+    def mean(self, encrypted: Any, valid_count: int) -> Any:
+        if not 1 <= valid_count <= BATCH_SIZE:
+            raise ValueError(f"valid_count must be in [1, {BATCH_SIZE}]")
+        return mean_slots(self._context, encrypted, valid_count)

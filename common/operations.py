@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 
-PRIMITIVE_OPERATIONS = ("add", "subtract", "multiply")
-REDUCTION_OPERATIONS = ("sum",)
-OPERATIONS = PRIMITIVE_OPERATIONS + REDUCTION_OPERATIONS
+BINARY_OPERATIONS = ("add", "subtract", "multiply")
+UNARY_OPERATIONS = ("square",)
+REDUCTION_OPERATIONS = ("sum", "mean")
+OPERATIONS = BINARY_OPERATIONS + UNARY_OPERATIONS + REDUCTION_OPERATIONS
 
 
 def validate_operation(value: object) -> str:
@@ -15,8 +16,12 @@ def validate_operation(value: object) -> str:
 
 
 def needs_right_ciphertext(operation: str) -> bool:
-    return operation in PRIMITIVE_OPERATIONS
+    return operation in BINARY_OPERATIONS
 
 
 def needs_evaluation_keys(operation: str) -> bool:
-    return operation in ("multiply", "sum")
+    return operation in ("multiply", "square", "sum", "mean")
+
+
+def needs_valid_count(operation: str) -> bool:
+    return operation in REDUCTION_OPERATIONS

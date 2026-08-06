@@ -24,7 +24,12 @@ import time
 from typing import Any, Protocol
 
 
-OPERATIONS = ("add", "subtract", "multiply", "sum")
+EVALUATOR_OPERATIONS = (
+    "add", "subtract", "multiply", "square", "sum", "mean",
+)
+DEMO_OPERATIONS = ("add", "subtract", "multiply", "sum")
+BINARY_OPERATIONS = ("add", "subtract", "multiply")
+REDUCTION_OPERATIONS = ("sum", "mean")
 MAX_ARTIFACT_BYTES = int(os.getenv("MAX_ARTIFACT_BYTES", str(256 * 1024 * 1024)))
 MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(768 * 1024 * 1024)))
 MAX_DEMO_SUM_VALUES = int(os.getenv("MAX_DEMO_SUM_VALUES", "1000000"))
@@ -118,7 +123,11 @@ def write_fides_context_metadata(
     valid_count: int | None,
     device: int,
 ) -> None:
-    rotations = fides_sum_rotation_indices(valid_count or 0) if operation == "sum" else []
+    rotations = (
+        fides_sum_rotation_indices(valid_count or 0)
+        if operation in REDUCTION_OPERATIONS
+        else []
+    )
     rotation_text = " ".join(str(index) for index in rotations)
     (Path(str(context_path) + ".dev")).write_text(
         f"1 {{ {device} }}\n"
@@ -364,8 +373,10 @@ def evaluate_request(payload: Any, evaluator: Evaluator) -> dict[str, Any]:
     if unexpected:
         raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
     operation = payload.get("operation")
-    if operation not in OPERATIONS:
-        raise RequestError(f"operation must be one of: {', '.join(OPERATIONS)}")
+    if operation not in EVALUATOR_OPERATIONS:
+        raise RequestError(
+            f"operation must be one of: {', '.join(EVALUATOR_OPERATIONS)}"
+        )
 
     request_id = payload.get("request_id")
     if request_id is not None and (
@@ -377,21 +388,23 @@ def evaluate_request(payload: Any, evaluator: Evaluator) -> dict[str, Any]:
     public_key = _decode(payload, "public_key")
     ciphertext_a = _decode(payload, "ciphertext_a")
     ciphertext_b = None
-    if operation != "sum":
+    if operation in BINARY_OPERATIONS:
         ciphertext_b = _decode(payload, "ciphertext_b")
     elif "ciphertext_b" in payload:
-        raise RequestError("sum does not accept ciphertext_b")
+        raise RequestError(f"{operation} does not accept ciphertext_b")
 
     evaluation_keys = None
-    if operation in ("multiply", "sum"):
+    if operation in ("multiply", "square", "sum", "mean"):
         evaluation_keys = _decode(payload, "evaluation_keys")
     elif "evaluation_keys" in payload:
         raise RequestError(f"{operation} does not accept evaluation_keys")
 
     valid_count = payload.get("valid_count")
-    if operation == "sum":
+    if operation in REDUCTION_OPERATIONS:
         if isinstance(valid_count, bool) or not isinstance(valid_count, int) or valid_count < 1:
-            raise RequestError("valid_count must be a positive integer for sum")
+            raise RequestError(
+                f"valid_count must be a positive integer for {operation}"
+            )
     elif "valid_count" in payload:
         raise RequestError(f"{operation} does not accept valid_count")
 
@@ -438,8 +451,10 @@ def evaluate_demo_request(
         raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
 
     operation = payload.get("operation")
-    if operation not in OPERATIONS:
-        raise RequestError(f"operation must be one of: {', '.join(OPERATIONS)}")
+    if operation not in DEMO_OPERATIONS:
+        raise RequestError(
+            f"operation must be one of: {', '.join(DEMO_OPERATIONS)}"
+        )
     values_a = _demo_values(payload, "values_a")
     values_b = None
     if operation == "sum":
@@ -530,7 +545,7 @@ def make_handler(
                 )
             elif self.path == "/v1/capabilities":
                 self._send(200, {
-                    "operations": list(OPERATIONS),
+                    "operations": list(EVALUATOR_OPERATIONS),
                     "scheme": "CKKS",
                     "backend": evaluator.backend_name,
                     "serialization": evaluator.serialization,
@@ -538,6 +553,7 @@ def make_handler(
                     "secret_key_required_by_api": False,
                     "native_demo_endpoint": "/v1/demo/evaluate",
                     "native_demo_input": "plaintext numeric arrays",
+                    "native_demo_operations": list(DEMO_OPERATIONS),
                     "demo_sum_endpoint": "/v1/demo/sum",
                     "demo_sum_max_values": MAX_DEMO_SUM_VALUES,
                 })

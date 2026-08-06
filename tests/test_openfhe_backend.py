@@ -15,6 +15,9 @@ class FakeContext:
     def EvalMult(self, left: object, right: object) -> tuple[object, ...]:
         return ("multiply", left, right)
 
+    def EvalSquare(self, encrypted: object) -> tuple[object, ...]:
+        return ("square", encrypted)
+
     def EvalSum(self, encrypted: object, count: int) -> tuple[object, ...]:
         return ("sum", encrypted, count)
 
@@ -31,7 +34,12 @@ class OpenFHEBackendTests(unittest.TestCase):
         self.assertEqual(
             backend.multiply(context, "a", "b"), ("multiply", "a", "b")
         )
+        self.assertEqual(backend.square(context, "a"), ("square", "a"))
         self.assertEqual(backend.sum(context, "a", 8), ("sum", "a", 8))
+        self.assertEqual(
+            backend.mean(context, "a", 8),
+            ("multiply", ("sum", "a", 8), 0.125),
+        )
 
 
 if __name__ == "__main__":

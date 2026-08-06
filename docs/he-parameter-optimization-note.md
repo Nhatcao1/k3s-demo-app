@@ -1,7 +1,8 @@
 # HE parameter reminder
 
-We are first proving that `add`, `subtract`, `multiply`, `sum`, and later
-functions such as `mean` and `variance` work correctly as exposed services.
+We are first proving that `add`, `subtract`, `multiply`, `square`, `sum`, and
+`mean`, followed later by functions such as `variance`, work correctly as
+exposed services.
 The current OpenFHE settings are test defaults, not final optimized settings.
 They live in one place: `openfhe_cpu/runtime.py`.
 

@@ -1,4 +1,4 @@
-"""Simple OpenFHE-Python backend for add, subtract, multiply, and sum."""
+"""Secretless OpenFHE-Python evaluator for the supported HE operations."""
 
 from __future__ import annotations
 
@@ -7,7 +7,14 @@ import tempfile
 import threading
 from typing import Any
 
-from openfhe_cpu.runtime import add, multiply, subtract, sum_slots
+from openfhe_cpu.runtime import (
+    add,
+    mean_slots,
+    multiply,
+    square,
+    subtract,
+    sum_slots,
+)
 
 
 class OpenFHEBackendError(ValueError):
@@ -50,9 +57,19 @@ class OpenFHEPythonBackend:
         return multiply(context, left, right)
 
     @staticmethod
+    def square(context: Any, encrypted: Any) -> Any:
+        """Ciphertext squared; requires multiplication evaluation keys."""
+        return square(context, encrypted)
+
+    @staticmethod
     def sum(context: Any, encrypted: Any, valid_count: int) -> Any:
         """Reduce valid packed slots; requires rotation/SUM evaluation keys."""
         return sum_slots(context, encrypted, valid_count)
+
+    @staticmethod
+    def mean(context: Any, encrypted: Any, valid_count: int) -> Any:
+        """Encrypted sum followed by public scalar multiplication by 1/n."""
+        return mean_slots(context, encrypted, valid_count)
 
     @staticmethod
     def _deserialize_ciphertext(openfhe: Any, path: Path, field: str) -> Any:
@@ -106,7 +123,7 @@ class OpenFHEPythonBackend:
             if evaluation_keys is not None:
                 key_path = root / "evaluation-keys.bin"
                 key_path.write_bytes(evaluation_keys)
-                if operation == "multiply":
+                if operation in ("multiply", "square"):
                     ok = crypto_context.DeserializeEvalMultKey(
                         str(key_path), openfhe.BINARY
                     )
@@ -121,9 +138,12 @@ class OpenFHEPythonBackend:
 
             left = self._deserialize_ciphertext(openfhe, left_path, "ciphertext_a")
 
-            if operation == "sum":
+            if operation in ("sum", "mean"):
                 assert valid_count is not None
-                result = self.sum(crypto_context, left, valid_count)
+                reductions = {"sum": self.sum, "mean": self.mean}
+                result = reductions[operation](crypto_context, left, valid_count)
+            elif operation == "square":
+                result = self.square(crypto_context, left)
             else:
                 assert ciphertext_b is not None
                 right_path = root / "ciphertext-b.bin"
