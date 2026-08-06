@@ -25,17 +25,9 @@ class FidesSourceContractTests(unittest.TestCase):
                 "Plaintext before calling FIDESlib Encrypt()",
             )
 
-    def test_main_backend_calls_methods_exposed_by_pinned_fideslib(self) -> None:
+    def test_main_backend_calls_expected_fideslib_methods(self) -> None:
         backend = (
             REPOSITORY / "gpu" / "worker" / "src" / "fides_backend.cpp"
-        ).read_text(encoding="utf-8")
-        public_api = (
-            REPOSITORY
-            / "gpu"
-            / "third_party"
-            / "FIDESlib"
-            / "api"
-            / "CryptoContext.hpp"
         ).read_text(encoding="utf-8")
         for method in (
             "EvalAdd",
@@ -45,6 +37,27 @@ class FidesSourceContractTests(unittest.TestCase):
             "AccumulateSum",
         ):
             self.assertIn(f"{method}(", backend)
+
+    def test_calls_match_pinned_fideslib_when_submodule_is_available(self) -> None:
+        public_api_path = (
+            REPOSITORY
+            / "gpu"
+            / "third_party"
+            / "FIDESlib"
+            / "api"
+            / "CryptoContext.hpp"
+        )
+        if not public_api_path.is_file():
+            self.skipTest("FIDESlib submodule is not initialized in this checkout")
+
+        public_api = public_api_path.read_text(encoding="utf-8")
+        for method in (
+            "EvalAdd",
+            "EvalSub",
+            "EvalMult",
+            "EvalSquare",
+            "AccumulateSum",
+        ):
             self.assertIn(f"{method}(", public_api)
 
 
