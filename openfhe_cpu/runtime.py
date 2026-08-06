@@ -55,6 +55,30 @@ def create_trial_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
     return context, keys
 
 
+def create_sum_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
+    """Create the fixed trial context with only the keys required by SUM.
+
+    The benchmark uses this narrower setup so CPU and GPU both generate one
+    context, one key pair, and rotation keys per complete request.
+    """
+    of = openfhe_module
+    parameters = of.CCParamsCKKSRNS()
+    parameters.SetMultiplicativeDepth(MULTIPLICATIVE_DEPTH)
+    parameters.SetFirstModSize(FIRST_MOD_SIZE)
+    parameters.SetScalingModSize(SCALING_MOD_SIZE)
+    parameters.SetScalingTechnique(of.FLEXIBLEAUTO)
+    parameters.SetSecurityLevel(of.HEStd_128_classic)
+    parameters.SetRingDim(RING_DIMENSION)
+    parameters.SetBatchSize(BATCH_SIZE)
+
+    context = of.GenCryptoContext(parameters)
+    for feature in (of.PKE, of.KEYSWITCH, of.LEVELEDSHE, of.ADVANCEDSHE):
+        context.Enable(feature)
+    keys = context.KeyGen()
+    context.EvalSumKeyGen(keys.secretKey)
+    return context, keys
+
+
 def add(context: Any, left: Any, right: Any) -> Any:
     return context.EvalAdd(left, right)
 

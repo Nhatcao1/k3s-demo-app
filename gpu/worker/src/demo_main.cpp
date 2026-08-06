@@ -1,10 +1,14 @@
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <fideslib.hpp>
@@ -15,6 +19,13 @@
 namespace {
 
 using Ciphertext = fideslib::Ciphertext<fideslib::DCRTPoly>;
+using Clock = std::chrono::steady_clock;
+constexpr std::size_t kBatchSize = 8192;
+constexpr std::size_t kMaximumValues = 1000000;
+
+double elapsed(const Clock::time_point& started) {
+    return std::chrono::duration<double>(Clock::now() - started).count();
+}
 
 std::map<std::string, std::string> parse_arguments(int argc, char** argv) {
     std::map<std::string, std::string> arguments;
@@ -63,15 +74,32 @@ std::vector<double> parse_values(const std::string& text) {
     return values;
 }
 
-std::size_t next_power_of_two(std::size_t value) {
-    std::size_t result = 1;
-    while (result < value) {
-        result *= 2;
+std::vector<double> read_binary_values(const std::string& filename) {
+    std::ifstream input(filename, std::ios::binary | std::ios::ate);
+    if (!input) {
+        throw std::invalid_argument("cannot open --input-file");
     }
-    return std::max<std::size_t>(result, 8);
+    const std::streamsize bytes = input.tellg();
+    if (bytes <= 0 || bytes % static_cast<std::streamsize>(sizeof(double)) != 0) {
+        throw std::invalid_argument("input file must contain binary float64 values");
+    }
+    const auto count = static_cast<std::size_t>(bytes / sizeof(double));
+    if (count > kMaximumValues) {
+        throw std::invalid_argument("input file exceeds the 1000000 value limit");
+    }
+    std::vector<double> values(count);
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(values.data()), bytes);
+    if (!input || !std::all_of(values.begin(), values.end(), [](double value) {
+            return std::isfinite(value);
+        })) {
+        throw std::invalid_argument("input file contains invalid float64 values");
+    }
+    return values;
 }
 
-void print_result(const std::string& operation, const std::vector<double>& values) {
+void print_simple_result(
+    const std::string& operation, const std::vector<double>& values) {
     std::cout << "{\"operation\":\"" << operation << "\",\"values\":[";
     std::cout << std::setprecision(15);
     for (std::size_t index = 0; index < values.size(); ++index) {
@@ -81,6 +109,154 @@ void print_result(const std::string& operation, const std::vector<double>& value
         std::cout << values[index];
     }
     std::cout << "]}\n";
+}
+
+void print_sum_result(
+    double value,
+    std::size_t value_count,
+    std::size_t chunks,
+    double context_keygen_seconds,
+    double encrypt_seconds,
+    double sum_seconds,
+    double combine_seconds,
+    double decrypt_seconds,
+    double total_seconds) {
+    std::cout << std::setprecision(15)
+              << "{\"operation\":\"sum\",\"values\":[" << value
+              << "],\"value_count\":" << value_count
+              << ",\"batch_size\":" << kBatchSize
+              << ",\"chunks\":" << chunks
+              << ",\"timings\":{"
+              << "\"context_keygen_seconds\":" << context_keygen_seconds << ','
+              << "\"encrypt_seconds\":" << encrypt_seconds << ','
+              << "\"sum_seconds\":" << sum_seconds << ','
+              << "\"combine_seconds\":" << combine_seconds << ','
+              << "\"decrypt_seconds\":" << decrypt_seconds << ','
+              << "\"total_seconds\":" << total_seconds << "}}\n";
+}
+
+fideslib::CryptoContext<fideslib::DCRTPoly> create_context() {
+    fideslib::CCParams<fideslib::CryptoContextCKKSRNS> parameters;
+    parameters.SetMultiplicativeDepth(1);
+    parameters.SetFirstModSize(60);
+    parameters.SetScalingModSize(50);
+    parameters.SetScalingTechnique(fideslib::FLEXIBLEAUTO);
+    parameters.SetSecurityLevel(fideslib::HEStd_128_classic);
+    parameters.SetRingDim(16384);
+    parameters.SetBatchSize(static_cast<uint32_t>(kBatchSize));
+    parameters.SetDevices({0});
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+    auto context = fideslib::GenCryptoContext(parameters);
+    context->Enable(fideslib::PKE);
+    context->Enable(fideslib::KEYSWITCH);
+    context->Enable(fideslib::LEVELEDSHE);
+    context->Enable(fideslib::ADVANCEDSHE);
+    return context;
+}
+
+void run_large_sum(const std::vector<double>& values) {
+    const auto total_started = Clock::now();
+    const auto setup_started = Clock::now();
+    auto context = create_context();
+    auto keys = context->KeyGen();
+    const auto rotation_indices = FIDESlib::CKKS::GetAccumulateRotationIndices(
+        4, 1, static_cast<int>(kBatchSize));
+    context->EvalRotateKeyGen(
+        keys.secretKey,
+        std::vector<int32_t>(rotation_indices.begin(), rotation_indices.end()));
+    context->LoadContext(keys.publicKey);
+    const double context_keygen_seconds = elapsed(setup_started);
+
+    he_gpu::FidesBackend backend(context);
+    Ciphertext encrypted_total;
+    double encrypt_seconds = 0.0;
+    double sum_seconds = 0.0;
+    double combine_seconds = 0.0;
+    std::size_t chunks = 0;
+
+    for (std::size_t offset = 0; offset < values.size(); offset += kBatchSize) {
+        const std::size_t valid_count =
+            std::min(kBatchSize, values.size() - offset);
+        std::vector<double> chunk(kBatchSize, 0.0);
+        std::copy_n(values.begin() + static_cast<std::ptrdiff_t>(offset),
+                    valid_count, chunk.begin());
+
+        const auto encrypt_started = Clock::now();
+        auto plaintext = context->MakeCKKSPackedPlaintext(chunk);
+        auto encrypted = context->Encrypt(keys.publicKey, plaintext);
+        encrypt_seconds += elapsed(encrypt_started);
+
+        const auto sum_started = Clock::now();
+        auto encrypted_sum = backend.sum(encrypted, static_cast<int>(kBatchSize));
+        sum_seconds += elapsed(sum_started);
+
+        if (!encrypted_total) {
+            encrypted_total = encrypted_sum;
+        } else {
+            const auto combine_started = Clock::now();
+            encrypted_total = backend.add(encrypted_total, encrypted_sum);
+            combine_seconds += elapsed(combine_started);
+        }
+        ++chunks;
+    }
+
+    const auto decrypt_started = Clock::now();
+    fideslib::Plaintext decrypted;
+    const auto result = context->Decrypt(keys.secretKey, encrypted_total, &decrypted);
+    if (!result.isValid) {
+        throw std::runtime_error("FIDESlib decryption failed");
+    }
+    decrypted->SetLength(1);
+    const double value = decrypted->GetRealPackedValue().at(0);
+    const double decrypt_seconds = elapsed(decrypt_started);
+    print_sum_result(
+        value, values.size(), chunks, context_keygen_seconds, encrypt_seconds,
+        sum_seconds, combine_seconds, decrypt_seconds, elapsed(total_started));
+}
+
+void run_small_operation(
+    const std::string& operation,
+    std::vector<double> left,
+    std::vector<double> right,
+    std::size_t input_length) {
+    left.resize(kBatchSize, 0.0);
+    right.resize(kBatchSize, 0.0);
+    auto context = create_context();
+    auto keys = context->KeyGen();
+    if (operation == "multiply") {
+        context->EvalMultKeyGen(keys.secretKey);
+    } else if (operation == "sum") {
+        const auto rotations = FIDESlib::CKKS::GetAccumulateRotationIndices(
+            4, 1, static_cast<int>(kBatchSize));
+        context->EvalRotateKeyGen(
+            keys.secretKey,
+            std::vector<int32_t>(rotations.begin(), rotations.end()));
+    }
+    context->LoadContext(keys.publicKey);
+    he_gpu::FidesBackend backend(context);
+    auto left_ciphertext = context->Encrypt(
+        keys.publicKey, context->MakeCKKSPackedPlaintext(left));
+    Ciphertext result;
+    if (operation == "sum") {
+        result = backend.sum(left_ciphertext, static_cast<int>(kBatchSize));
+    } else {
+        auto right_ciphertext = context->Encrypt(
+            keys.publicKey, context->MakeCKKSPackedPlaintext(right));
+        if (operation == "add") result = backend.add(left_ciphertext, right_ciphertext);
+        else if (operation == "subtract") result = backend.subtract(left_ciphertext, right_ciphertext);
+        else result = backend.multiply(left_ciphertext, right_ciphertext);
+    }
+    fideslib::Plaintext decrypted;
+    const auto decrypted_result = context->Decrypt(keys.secretKey, result, &decrypted);
+    if (!decrypted_result.isValid) {
+        throw std::runtime_error("FIDESlib decryption failed");
+    }
+    const std::size_t result_length = operation == "sum" ? 1 : input_length;
+    decrypted->SetLength(result_length);
+    auto result_values = decrypted->GetRealPackedValue();
+    result_values.resize(result_length);
+    print_simple_result(operation, result_values);
 }
 
 }  // namespace
@@ -93,8 +269,16 @@ int main(int argc, char** argv) {
             operation != "multiply" && operation != "sum") {
             throw std::invalid_argument("unsupported operation");
         }
-
+        const auto input_file = arguments.find("input-file");
+        if (input_file != arguments.end()) {
+            if (operation != "sum") {
+                throw std::invalid_argument("--input-file currently supports only sum");
+            }
+            run_large_sum(read_binary_values(input_file->second));
+            return 0;
+        }
         auto left = parse_values(required(arguments, "left"));
+        const std::size_t input_length = left.size();
         std::vector<double> right;
         if (operation != "sum") {
             right = parse_values(required(arguments, "right"));
@@ -102,70 +286,8 @@ int main(int argc, char** argv) {
                 throw std::invalid_argument("left and right vectors must have equal length");
             }
         }
-
-        const std::size_t result_length = operation == "sum" ? 1 : left.size();
-        const std::size_t batch_size = next_power_of_two(left.size());
-        left.resize(batch_size, 0.0);
-        if (operation != "sum") {
-            right.resize(batch_size, 0.0);
-        }
-
-        fideslib::CCParams<fideslib::CryptoContextCKKSRNS> parameters;
-        parameters.SetMultiplicativeDepth(1);
-        parameters.SetScalingModSize(50);
-        parameters.SetBatchSize(static_cast<uint32_t>(batch_size));
-        parameters.SetDevices({0});
-        parameters.SetPlaintextAutoload(false);
-        parameters.SetCiphertextAutoload(true);
-
-        auto context = fideslib::GenCryptoContext(parameters);
-        context->Enable(fideslib::PKE);
-        context->Enable(fideslib::KEYSWITCH);
-        context->Enable(fideslib::LEVELEDSHE);
-
-        auto keys = context->KeyGen();
-        if (operation == "multiply") {
-            context->EvalMultKeyGen(keys.secretKey);
-        } else if (operation == "sum") {
-            const auto rotation_indices =
-                FIDESlib::CKKS::GetAccumulateRotationIndices(
-                    4, 1, static_cast<int>(batch_size));
-            context->EvalRotateKeyGen(
-                keys.secretKey,
-                std::vector<int32_t>(
-                    rotation_indices.begin(), rotation_indices.end()));
-        }
-        context->LoadContext(keys.publicKey);
-
-        auto left_plaintext = context->MakeCKKSPackedPlaintext(left);
-        Ciphertext left_ciphertext = context->Encrypt(keys.publicKey, left_plaintext);
-        he_gpu::FidesBackend backend(context);
-        Ciphertext result;
-
-        if (operation == "sum") {
-            result = backend.sum(left_ciphertext, static_cast<int>(batch_size));
-        } else {
-            auto right_plaintext = context->MakeCKKSPackedPlaintext(right);
-            Ciphertext right_ciphertext =
-                context->Encrypt(keys.publicKey, right_plaintext);
-            if (operation == "add") {
-                result = backend.add(left_ciphertext, right_ciphertext);
-            } else if (operation == "subtract") {
-                result = backend.subtract(left_ciphertext, right_ciphertext);
-            } else {
-                result = backend.multiply(left_ciphertext, right_ciphertext);
-            }
-        }
-
-        fideslib::Plaintext decrypted;
-        const auto decrypt_result = context->Decrypt(keys.secretKey, result, &decrypted);
-        if (!decrypt_result.isValid) {
-            throw std::runtime_error("FIDESlib decryption failed");
-        }
-        decrypted->SetLength(result_length);
-        auto values = decrypted->GetRealPackedValue();
-        values.resize(result_length);
-        print_result(operation, values);
+        run_small_operation(
+            operation, std::move(left), std::move(right), input_length);
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "he-gpu-demo: " << error.what() << '\n';

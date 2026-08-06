@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import ctypes
+from array import array
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import logging
@@ -21,6 +22,7 @@ from typing import Any, Protocol
 OPERATIONS = ("add", "subtract", "multiply", "sum")
 MAX_ARTIFACT_BYTES = int(os.getenv("MAX_ARTIFACT_BYTES", str(256 * 1024 * 1024)))
 MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(768 * 1024 * 1024)))
+MAX_DEMO_SUM_VALUES = int(os.getenv("MAX_DEMO_SUM_VALUES", "1000000"))
 LOGGER = logging.getLogger(__name__)
 
 
@@ -88,6 +90,8 @@ class DemoEvaluator(Protocol):
         values_a: list[float],
         values_b: list[float] | None,
     ) -> list[float]: ...
+
+    def sum_many(self, values: list[float]) -> dict[str, Any]: ...
 
 
 def fides_sum_rotation_indices(valid_count: int) -> list[int]:
@@ -227,24 +231,7 @@ class NativeDemoBackend:
             "/dev/nvidiactl"
         ).exists()
 
-    def evaluate(
-        self,
-        operation: str,
-        values_a: list[float],
-        values_b: list[float] | None,
-    ) -> list[float]:
-        command = [
-            str(self.worker),
-            "--operation",
-            operation,
-            "--left",
-            ",".join(format(value, ".17g") for value in values_a),
-        ]
-        if values_b is not None:
-            command.extend(
-                ("--right", ",".join(format(value, ".17g") for value in values_b))
-            )
-
+    def _run(self, command: list[str]) -> dict[str, Any]:
         try:
             with self._lock:
                 completed = subprocess.run(
@@ -283,6 +270,26 @@ class NativeDemoBackend:
                 completed.stdout[-8192:],
             )
             raise RuntimeError("native FIDESlib demo returned invalid output")
+        return payload
+
+    def evaluate(
+        self,
+        operation: str,
+        values_a: list[float],
+        values_b: list[float] | None,
+    ) -> list[float]:
+        command = [
+            str(self.worker),
+            "--operation",
+            operation,
+            "--left",
+            ",".join(format(value, ".17g") for value in values_a),
+        ]
+        if values_b is not None:
+            command.extend(
+                ("--right", ",".join(format(value, ".17g") for value in values_b))
+            )
+        payload = self._run(command)
         values = payload["values"]
         if not isinstance(values, list) or not all(
             isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -290,6 +297,33 @@ class NativeDemoBackend:
         ):
             raise RuntimeError("native FIDESlib demo returned invalid values")
         return [float(value) for value in values]
+
+    def sum_many(self, values: list[float]) -> dict[str, Any]:
+        """Pass large input through a private binary file, not command arguments."""
+        with tempfile.TemporaryDirectory(prefix="fides-demo-sum-") as directory:
+            input_path = Path(directory) / "values.float64"
+            with input_path.open("wb") as output:
+                array("d", values).tofile(output)
+            payload = self._run(
+                [
+                    str(self.worker),
+                    "--operation",
+                    "sum",
+                    "--input-file",
+                    str(input_path),
+                ]
+            )
+        result = payload.get("values")
+        timings = payload.get("timings")
+        if (
+            not isinstance(result, list)
+            or len(result) != 1
+            or not isinstance(result[0], (int, float))
+            or isinstance(result[0], bool)
+            or not isinstance(timings, dict)
+        ):
+            raise RuntimeError("native FIDESlib SUM returned invalid output")
+        return payload
 
 
 def _decode(payload: dict[str, Any], name: str) -> bytes:
@@ -424,6 +458,41 @@ def evaluate_demo_request(
     return response
 
 
+def evaluate_demo_sum_request(
+    payload: Any, evaluator: DemoEvaluator
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise RequestError("request body must be a JSON object")
+    unexpected = sorted(set(payload) - {"values", "request_id"})
+    if unexpected:
+        raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
+    raw_values = payload.get("values")
+    if not isinstance(raw_values, list) or not 1 <= len(raw_values) <= MAX_DEMO_SUM_VALUES:
+        raise RequestError(
+            f"values must contain between 1 and {MAX_DEMO_SUM_VALUES} numbers"
+        )
+    values: list[float] = []
+    for value in raw_values:
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+        ):
+            raise RequestError("values must contain only finite numbers")
+        values.append(float(value))
+    request_id = payload.get("request_id")
+    if request_id is not None and (
+        not isinstance(request_id, str) or not request_id or len(request_id) > 128
+    ):
+        raise RequestError("request_id must be a non-empty string of at most 128 characters")
+    response = evaluator.sum_many(values)
+    response["backend"] = evaluator.backend_name
+    response["demo_trust_model"] = "plaintext enters the GPU service"
+    if request_id is not None:
+        response["request_id"] = request_id
+    return response
+
+
 def make_handler(
     evaluator: Evaluator, demo_evaluator: DemoEvaluator
 ) -> type[BaseHTTPRequestHandler]:
@@ -457,12 +526,14 @@ def make_handler(
                     "secret_key_required_by_api": False,
                     "native_demo_endpoint": "/v1/demo/evaluate",
                     "native_demo_input": "plaintext numeric arrays",
+                    "demo_sum_endpoint": "/v1/demo/sum",
+                    "demo_sum_max_values": MAX_DEMO_SUM_VALUES,
                 })
             else:
                 self._send(404, {"error": "not_found"})
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path not in ("/v1/evaluate", "/v1/demo/evaluate"):
+            if self.path not in ("/v1/evaluate", "/v1/demo/evaluate", "/v1/demo/sum"):
                 self._send(404, {"error": "not_found"})
                 return
             if self.headers.get("Content-Type", "").split(";", 1)[0].strip() != "application/json":
@@ -479,9 +550,13 @@ def make_handler(
             try:
                 payload = json.loads(self.rfile.read(length))
                 response = (
-                    evaluate_demo_request(payload, demo_evaluator)
-                    if self.path == "/v1/demo/evaluate"
-                    else evaluate_request(payload, evaluator)
+                    evaluate_demo_sum_request(payload, demo_evaluator)
+                    if self.path == "/v1/demo/sum"
+                    else (
+                        evaluate_demo_request(payload, demo_evaluator)
+                        if self.path == "/v1/demo/evaluate"
+                        else evaluate_request(payload, evaluator)
+                    )
                 )
             except (json.JSONDecodeError, UnicodeDecodeError):
                 self._send(400, {"error": "invalid_json"})

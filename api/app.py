@@ -6,11 +6,13 @@ import base64
 import binascii
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import math
 import os
 import time
 from typing import Any, Protocol
 
 from backends.openfhe_python import OpenFHEBackendError, OpenFHEPythonBackend
+from backends.openfhe_demo_sum import OpenFHEDemoSumBackend
 from common.operations import (
     OPERATIONS,
     needs_evaluation_keys,
@@ -24,6 +26,7 @@ from common.operations import (
 # without installing OpenFHE.
 MAX_ARTIFACT_BYTES = int(os.getenv("MAX_ARTIFACT_BYTES", str(32 * 1024 * 1024)))
 MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(100 * 1024 * 1024)))
+MAX_DEMO_SUM_VALUES = int(os.getenv("MAX_DEMO_SUM_VALUES", "1000000"))
 
 
 class RequestError(ValueError):
@@ -48,6 +51,15 @@ class CiphertextEvaluator(Protocol):
         valid_count: int | None,
     ) -> bytes:
         """Return one serialized result ciphertext."""
+
+
+class DemoSumEvaluator(Protocol):
+    backend_name: str
+
+    @property
+    def ready(self) -> bool: ...
+
+    def sum_values(self, values: list[float]) -> dict[str, Any]: ...
 
 
 def _decode_artifact(payload: dict[str, Any], name: str) -> bytes:
@@ -158,7 +170,45 @@ def evaluate_request(
     return response
 
 
-def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]:
+def evaluate_demo_sum_request(
+    payload: Any, evaluator: DemoSumEvaluator
+) -> dict[str, Any]:
+    """Run the trusted plaintext benchmark path, separate from /v1/evaluate."""
+    if not isinstance(payload, dict):
+        raise RequestError("request body must be a JSON object")
+    unexpected = sorted(set(payload) - {"values", "request_id"})
+    if unexpected:
+        raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
+    values = payload.get("values")
+    if not isinstance(values, list) or not 1 <= len(values) <= MAX_DEMO_SUM_VALUES:
+        raise RequestError(
+            f"values must contain between 1 and {MAX_DEMO_SUM_VALUES} numbers"
+        )
+    materialized: list[float] = []
+    for value in values:
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+        ):
+            raise RequestError("values must contain only finite numbers")
+        materialized.append(float(value))
+    request_id = payload.get("request_id")
+    if request_id is not None and (
+        not isinstance(request_id, str) or not request_id or len(request_id) > 128
+    ):
+        raise RequestError("request_id must be a non-empty string of at most 128 characters")
+    response = evaluator.sum_values(materialized)
+    response["backend"] = evaluator.backend_name
+    response["demo_trust_model"] = "plaintext enters the CPU service"
+    if request_id is not None:
+        response["request_id"] = request_id
+    return response
+
+
+def make_handler(
+    evaluator: CiphertextEvaluator, demo_sum_evaluator: DemoSumEvaluator
+) -> type[BaseHTTPRequestHandler]:
     """Create a request handler bound to one evaluator."""
 
     class Handler(BaseHTTPRequestHandler):
@@ -180,10 +230,11 @@ def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]
             if self.path == "/healthz":
                 self._send_json(200, {"status": "ok"})
             elif self.path == "/readyz":
-                status = 200 if evaluator.ready else 503
+                ready = evaluator.ready and demo_sum_evaluator.ready
+                status = 200 if ready else 503
                 self._send_json(
                     status,
-                    {"status": "ready" if evaluator.ready else "not_ready"},
+                    {"status": "ready" if ready else "not_ready"},
                 )
             elif self.path == "/v1/capabilities":
                 self._send_json(
@@ -194,13 +245,15 @@ def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]
                         "backend": evaluator.backend_name,
                         "serialization": evaluator.serialization,
                         "secret_key_required_by_api": False,
+                        "demo_sum_endpoint": "/v1/demo/sum",
+                        "demo_sum_input": "plaintext numeric array",
                     },
                 )
             else:
                 self._send_json(404, {"error": "not_found"})
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path != "/v1/evaluate":
+            if self.path not in ("/v1/evaluate", "/v1/demo/sum"):
                 self._send_json(404, {"error": "not_found"})
                 return
             content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
@@ -217,7 +270,11 @@ def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]
                 return
             try:
                 payload = json.loads(self.rfile.read(content_length))
-                response = evaluate_request(payload, evaluator)
+                response = (
+                    evaluate_demo_sum_request(payload, demo_sum_evaluator)
+                    if self.path == "/v1/demo/sum"
+                    else evaluate_request(payload, evaluator)
+                )
             except (json.JSONDecodeError, UnicodeDecodeError):
                 self._send_json(400, {"error": "invalid_json"})
             except RequestError as error:
@@ -234,9 +291,11 @@ def create_server(
     host: str = "0.0.0.0",
     port: int = 8080,
     evaluator: CiphertextEvaluator | None = None,
+    demo_sum_evaluator: DemoSumEvaluator | None = None,
 ) -> HTTPServer:
     selected = evaluator or OpenFHEPythonBackend()
-    return HTTPServer((host, port), make_handler(selected))
+    selected_demo = demo_sum_evaluator or OpenFHEDemoSumBackend()
+    return HTTPServer((host, port), make_handler(selected, selected_demo))
 
 
 def main() -> None:

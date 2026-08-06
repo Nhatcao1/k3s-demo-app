@@ -16,6 +16,7 @@ from gpu.api.app import (
     RequestError,
     create_server,
     evaluate_demo_request,
+    evaluate_demo_sum_request,
     evaluate_request,
     fides_sum_rotation_indices,
     write_fides_context_metadata,
@@ -72,6 +73,17 @@ class FakeNativeDemoEvaluator:
         if operation == "subtract":
             return [left - right for left, right in zip(values_a, values_b)]
         return [left * right for left, right in zip(values_a, values_b)]
+
+    def sum_many(self, values: list[float]) -> dict[str, object]:
+        self.received_many = values
+        return {
+            "operation": "sum",
+            "values": [sum(values)],
+            "value_count": len(values),
+            "batch_size": 8192,
+            "chunks": 1,
+            "timings": {"total_seconds": 0.2},
+        }
 
 
 def primitive_payload(operation: str = "add") -> dict[str, object]:
@@ -187,6 +199,30 @@ class GpuContractTests(unittest.TestCase):
             result = backend.evaluate("sum", [12.0, 7.0, 8.0, 9.0], None)
         self.assertEqual(result, [36.0])
 
+    def test_large_sum_request_uses_matching_contract(self) -> None:
+        evaluator = FakeNativeDemoEvaluator()
+        response = evaluate_demo_sum_request(
+            {"values": [12, 7, 8, 9], "request_id": "gpu-sum"}, evaluator
+        )
+        self.assertEqual(evaluator.received_many, [12.0, 7.0, 8.0, 9.0])
+        self.assertEqual(response["values"], [36.0])
+        self.assertEqual(response["request_id"], "gpu-sum")
+
+    def test_native_demo_large_sum_adapter_reads_timing_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            worker = Path(directory) / "fake-demo-worker"
+            worker.write_text(
+                "#!/bin/sh\nprintf '%s\\n' 'GPU 0: Tesla T4'\n"
+                "printf '%s\\n' '{\"operation\":\"sum\",\"values\":[36.0],"
+                "\"value_count\":4,\"batch_size\":8192,\"chunks\":1,"
+                "\"timings\":{\"total_seconds\":0.2}}'\n",
+                encoding="utf-8",
+            )
+            os.chmod(worker, 0o700)
+            result = NativeDemoBackend(str(worker)).sum_many([12.0, 7.0, 8.0, 9.0])
+        self.assertEqual(result["values"], [36.0])
+        self.assertEqual(result["timings"]["total_seconds"], 0.2)
+
 
 class GpuHttpTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -229,6 +265,18 @@ class GpuHttpTests(unittest.TestCase):
             data=json.dumps(
                 {"operation": "sum", "values_a": [12, 7, 8, 9]}
             ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=2) as response:
+            payload = json.load(response)
+        self.assertEqual(payload["backend"], "gpu-fides-native-test")
+        self.assertEqual(payload["values"], [36.0])
+
+    def test_large_sum_http_endpoint(self) -> None:
+        request = Request(
+            self.base_url + "/v1/demo/sum",
+            data=json.dumps({"values": [12, 7, 8, 9]}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )

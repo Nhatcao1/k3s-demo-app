@@ -7,7 +7,12 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from api.app import RequestError, create_server, evaluate_request
+from api.app import (
+    RequestError,
+    create_server,
+    evaluate_demo_sum_request,
+    evaluate_request,
+)
 class FakeEvaluator:
     backend_name = "test-backend"
     serialization = "test-bytes-base64"
@@ -31,6 +36,22 @@ class FakeEvaluator:
             valid_count,
         )
         return b"encrypted-result"
+
+
+class FakeDemoSumEvaluator:
+    backend_name = "cpu-openfhe-demo-test"
+    ready = True
+
+    def sum_values(self, values: list[float]) -> dict[str, object]:
+        self.received = values
+        return {
+            "operation": "sum",
+            "values": [sum(values)],
+            "value_count": len(values),
+            "batch_size": 8192,
+            "chunks": 1,
+            "timings": {"total_seconds": 0.1},
+        }
 
 
 def encoded(value: bytes) -> str:
@@ -91,10 +112,24 @@ class EvaluateRequestTests(unittest.TestCase):
         with self.assertRaisesRegex(RequestError, "unexpected fields"):
             evaluate_request(payload, FakeEvaluator())
 
+    def test_demo_sum_has_matching_benchmark_contract(self) -> None:
+        evaluator = FakeDemoSumEvaluator()
+        result = evaluate_demo_sum_request(
+            {"values": [12, 7, 8, 9], "request_id": "cpu-sum"}, evaluator
+        )
+        self.assertEqual(evaluator.received, [12.0, 7.0, 8.0, 9.0])
+        self.assertEqual(result["values"], [36.0])
+        self.assertEqual(result["request_id"], "cpu-sum")
+
 
 class HttpApiTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.server = create_server(host="127.0.0.1", port=0, evaluator=FakeEvaluator())
+        self.server = create_server(
+            host="127.0.0.1",
+            port=0,
+            evaluator=FakeEvaluator(),
+            demo_sum_evaluator=FakeDemoSumEvaluator(),
+        )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base_url = f"http://127.0.0.1:{self.server.server_port}"
@@ -108,9 +143,11 @@ class HttpApiTests(unittest.TestCase):
         with urlopen(self.base_url + path, timeout=2) as response:
             return response.status, json.load(response)
 
-    def post(self, payload: dict[str, object]) -> dict[str, object]:
+    def post(
+        self, payload: dict[str, object], path: str = "/v1/evaluate"
+    ) -> dict[str, object]:
         request = Request(
-            self.base_url + "/v1/evaluate",
+            self.base_url + path,
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -131,6 +168,11 @@ class HttpApiTests(unittest.TestCase):
         result = self.post(primitive_payload("subtract"))
         self.assertEqual(result["operation"], "subtract")
         self.assertEqual(base64.b64decode(result["ciphertext"]), b"encrypted-result")
+
+    def test_demo_sum_endpoint(self) -> None:
+        result = self.post({"values": [12, 7, 8, 9]}, "/v1/demo/sum")
+        self.assertEqual(result["backend"], "cpu-openfhe-demo-test")
+        self.assertEqual(result["values"], [36.0])
 
     def test_rejects_secret_key_field(self) -> None:
         payload = primitive_payload()
