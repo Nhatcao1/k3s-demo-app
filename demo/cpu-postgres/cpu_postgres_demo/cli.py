@@ -114,20 +114,20 @@ def multiply_session(session_id: str, store: SessionStore) -> None:
 
 def verify_session(inputs: DemoInputs, store: SessionStore) -> None:
     artifacts = store.verification_artifacts(inputs.session_id)
+    expected_amount = store.expected_amount(inputs.session_id)
     observed = decrypt_final_result(
         artifacts, inputs.wrap_key, inputs.session_id, inputs.scheme
     )
     if inputs.scheme == "bgv":
-        expected_scaled = sum(inputs.salaries) * inputs.kpi_scaled
+        expected_scaled = int(expected_amount * inputs.kpi_scale)
         passed = int(observed) == expected_scaled
         decrypted_amount = Decimal(int(observed)) / Decimal(inputs.kpi_scale)
     else:
-        expected_float = float(sum(inputs.salaries)) * float(inputs.kpi)
+        expected_float = float(expected_amount)
         passed = abs(float(observed) - expected_float) <= (
             max(1.0, abs(expected_float)) * inputs.tolerance
         )
         decrypted_amount = Decimal(str(float(observed)))
-    expected_amount = Decimal(sum(inputs.salaries)) * inputs.kpi
     absolute_error = abs(decrypted_amount - expected_amount)
     if passed:
         store.mark_verified(inputs.session_id, decrypted_amount, absolute_error)

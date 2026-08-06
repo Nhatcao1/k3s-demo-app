@@ -74,17 +74,17 @@ class SessionStore:
                 cursor.execute(
                     """
                     INSERT INTO he_demo_sessions
-                        (session_id, scheme, status, valid_count, kpi_scale,
-                         expected_amount)
-                    VALUES (%s, %s, 'INITIALIZED', %s, %s, %s)
+                        (session_id, scheme, status, valid_count, kpi_scale)
+                    VALUES (%s, %s, 'INITIALIZED', %s, %s)
                     """,
-                    (
-                        session_id,
-                        scheme,
-                        valid_count,
-                        kpi_scale,
-                        expected_amount,
-                    ),
+                    (session_id, scheme, valid_count, kpi_scale),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO he_demo_results (session_id, expected_amount)
+                    VALUES (%s, %s)
+                    """,
+                    (session_id, expected_amount),
                 )
                 for name, payload in artifacts.items():
                     cursor.execute(
@@ -191,6 +191,23 @@ class SessionStore:
                     )
                 return self._load_many(cursor, session_id, names)
 
+    def expected_amount(self, session_id: str) -> Decimal:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT expected_amount FROM he_demo_results
+                    WHERE session_id = %s
+                    """,
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise SessionStoreError(
+                        f"session result is missing: {session_id}"
+                    )
+                return Decimal(row[0])
+
     def mark_verified(
         self,
         session_id: str,
@@ -202,16 +219,28 @@ class SessionStore:
                 cursor.execute(
                     """
                     UPDATE he_demo_sessions
-                    SET status = 'VERIFIED', decrypted_amount = %s,
-                        absolute_error = %s, updated_at = now()
+                    SET status = 'VERIFIED', updated_at = now()
                     WHERE session_id = %s
                       AND status IN ('MULTIPLIED', 'VERIFIED')
                     RETURNING session_id
                     """,
-                    (decrypted_amount, absolute_error, session_id),
+                    (session_id,),
                 )
                 changed = cursor.fetchone() is not None
                 if changed:
+                    cursor.execute(
+                        """
+                        UPDATE he_demo_results
+                        SET decrypted_amount = %s, absolute_error = %s,
+                            updated_at = now()
+                        WHERE session_id = %s
+                        """,
+                        (decrypted_amount, absolute_error, session_id),
+                    )
+                    if cursor.rowcount != 1:
+                        raise SessionStoreError(
+                            f"session result is missing: {session_id}"
+                        )
                     cursor.execute(
                         """
                         INSERT INTO he_demo_operations
@@ -228,10 +257,12 @@ class SessionStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT scheme, status, valid_count, kpi_scale,
-                           expected_amount, decrypted_amount, absolute_error,
-                           created_at, updated_at
-                    FROM he_demo_sessions WHERE session_id = %s
+                    SELECT s.scheme, s.status, s.valid_count, s.kpi_scale,
+                           r.expected_amount, r.decrypted_amount,
+                           r.absolute_error, s.created_at, s.updated_at
+                    FROM he_demo_sessions AS s
+                    JOIN he_demo_results AS r USING (session_id)
+                    WHERE s.session_id = %s
                     """,
                     (session_id,),
                 )
