@@ -4,7 +4,7 @@ This directory is the isolated GPU build context. It contains FIDESlib and its
 matching patched OpenFHE only. It must not install or link the standard
 `openfhe-python` runtime used by the repository's CPU image.
 
-GitLab CI builds and pushes `dockerboi99/he_k8s:gpu-<commit-sha>` and
+On `main`, GitLab CI builds and pushes only
 `dockerboi99/he_k8s:gpu-latest`. The job compiles CUDA code but does not execute
 GPU tests. `FIDESLIB_ARCH` must match the server GPU before deployment.
 
