@@ -104,6 +104,9 @@ run:
 python -m client.direct_openfhe_cpu_test
 ```
 
+See `docs/direct-openfhe-library.md` for the short direct-library setup and
+the six checked operations.
+
 The parameter trade-offs and later optimization checkpoint are recorded in
 `docs/he-parameter-optimization-note.md`.
 

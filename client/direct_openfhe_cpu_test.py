@@ -44,9 +44,19 @@ def main() -> None:
             [a * b for a, b in zip(LEFT, RIGHT)],
             len(LEFT),
         ),
+        "square": (
+            he.square(left),
+            [value * value for value in LEFT],
+            len(LEFT),
+        ),
         "sum": (
             he.sum(left, len(LEFT)),
             [sum(LEFT)],
+            1,
+        ),
+        "mean": (
+            he.mean(left, len(LEFT)),
+            [sum(LEFT) / len(LEFT)],
             1,
         ),
     }
