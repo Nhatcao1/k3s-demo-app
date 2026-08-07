@@ -24,37 +24,56 @@ def check(name: str, observed: list[float], expected: list[float]) -> None:
     )
 
 def main() -> None:
-    expected = {
-        "add": [a + b for a, b in zip(LEFT, RIGHT)],
-        "subtract": [a - b for a, b in zip(LEFT, RIGHT)],
-        "multiply": [a * b for a, b in zip(LEFT, RIGHT)],
-        "square": [value * value for value in LEFT],
-        "sum": [sum(LEFT)],
-        "mean": [sum(LEFT) / len(LEFT)],
-        "variance": [
-            sum(
-                (value - sum(LEFT) / len(LEFT)) ** 2
-                for value in LEFT
-            ) / len(LEFT)
-        ],
+    he = OpenFHECPU()
+    left = he.encrypt(LEFT)
+    right = he.encrypt(RIGHT)
+
+    cases = {
+        "add": (
+            he.add(left, right),
+            [a + b for a, b in zip(LEFT, RIGHT)],
+            len(LEFT),
+        ),
+        "subtract": (
+            he.subtract(left, right),
+            [a - b for a, b in zip(LEFT, RIGHT)],
+            len(LEFT),
+        ),
+        "multiply": (
+            he.multiply(left, right),
+            [a * b for a, b in zip(LEFT, RIGHT)],
+            len(LEFT),
+        ),
+        "square": (
+            he.square(left),
+            [value * value for value in LEFT],
+            len(LEFT),
+        ),
+        "sum": (
+            he.sum(left, len(LEFT)),
+            [sum(LEFT)],
+            1,
+        ),
+        "mean": (
+            he.mean(left, len(LEFT)),
+            [sum(LEFT) / len(LEFT)],
+            1,
+        ),
+        "variance": (
+            he.variance(left, len(LEFT)),
+            [
+                sum(
+                    (value - sum(LEFT) / len(LEFT)) ** 2
+                    for value in LEFT
+                ) / len(LEFT)
+            ],
+            1,
+        ),
     }
 
-    for name in expected:
-        # A ciphertext belongs to the context selected for this operation.
-        # Recreate context and keys instead of silently using a max-depth
-        # profile for every test.
-        he = OpenFHECPU(name)
-        left = he.encrypt(LEFT)
-        if name in ("add", "subtract", "multiply"):
-            right = he.encrypt(RIGHT)
-            encrypted = getattr(he, name)(left, right)
-        elif name == "square":
-            encrypted = he.square(left)
-        else:
-            encrypted = getattr(he, name)(left, len(LEFT))
-        output_length = 1 if name in ("sum", "mean", "variance") else len(LEFT)
+    for name, (encrypted, expected, output_length) in cases.items():
         observed = he.decrypt(encrypted, output_length)
-        check(name, observed, expected[name])
+        check(name, observed, expected)
 
 
 if __name__ == "__main__":

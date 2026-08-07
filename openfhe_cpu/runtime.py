@@ -1,4 +1,4 @@
-"""Operation-specific trial profiles and direct CPU OpenFHE functions.
+"""Fixed trial configuration and direct CPU OpenFHE functions.
 
 This is the layer below the evaluator backend and HTTP API. Keep the trial
 configuration here so clients do not repeat CKKS setup and key generation.
@@ -9,69 +9,30 @@ from __future__ import annotations
 
 import importlib
 import math
-from dataclasses import dataclass
 from typing import Any, Sequence
 
 
-# Values that are shared by every current CKKS operation profile.
+# Version-1 trial defaults. These are deliberately explicit, but not claimed
+# to be optimal for every future workload.
+MULTIPLICATIVE_DEPTH = 2
 FIRST_MOD_SIZE = 60
+SCALING_MOD_SIZE = 50
 RING_DIMENSION = 16384
 BATCH_SIZE = 8192
 
 
-@dataclass(frozen=True)
-class HEParameterProfile:
-    """Reviewable CPU CKKS policy for exactly one exposed operation."""
+def create_trial_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
+    """Create the shared trial CKKS context and client-owned key pair.
 
-    operation: str
-    operation_depth: int
-    context_depth: int
-    scaling_mod_size: int
-    needs_multiplication_keys: bool
-    needs_rotation_keys: bool
-
-
-# These remain correctness-first trial values. Context depth is at least one
-# because OpenFHE still needs a usable CKKS modulus chain for depth-zero
-# operations. Variance receives one spare level and a larger scaling modulus
-# while its level/scale behavior is being validated on the deployment server.
-OPERATION_PROFILES: dict[str, HEParameterProfile] = {
-    "add": HEParameterProfile("add", 0, 1, 45, False, False),
-    "subtract": HEParameterProfile("subtract", 0, 1, 45, False, False),
-    "multiply": HEParameterProfile("multiply", 1, 1, 50, True, False),
-    "square": HEParameterProfile("square", 1, 1, 50, True, False),
-    "sum": HEParameterProfile("sum", 0, 1, 45, False, True),
-    "mean": HEParameterProfile("mean", 1, 1, 50, False, True),
-    "variance": HEParameterProfile("variance", 2, 3, 55, True, True),
-}
-
-
-def get_operation_profile(operation: str) -> HEParameterProfile:
-    """Return the explicit profile or reject an unsupported operation."""
-    try:
-        return OPERATION_PROFILES[operation]
-    except KeyError as error:
-        supported = ", ".join(OPERATION_PROFILES)
-        raise ValueError(
-            f"operation must be one of: {supported}"
-        ) from error
-
-
-def create_operation_context_and_keys(
-    openfhe_module: Any, operation: str
-) -> tuple[Any, Any]:
-    """Create one operation-specific CKKS context and minimum key bundle.
-
-    The trusted client owns the secret key. The evaluator API never sees it.
-    Profiles are selected before encryption because ciphertexts and evaluation
-    keys cannot be moved between incompatible CKKS contexts.
+    This is intentionally one place for the current trial parameters. The
+    trusted client owns the returned secret key; the evaluator API never sees
+    it. These defaults are for functional development, not final tuning.
     """
     of = openfhe_module
-    profile = get_operation_profile(operation)
     parameters = of.CCParamsCKKSRNS()
-    parameters.SetMultiplicativeDepth(profile.context_depth)
+    parameters.SetMultiplicativeDepth(MULTIPLICATIVE_DEPTH)
     parameters.SetFirstModSize(FIRST_MOD_SIZE)
-    parameters.SetScalingModSize(profile.scaling_mod_size)
+    parameters.SetScalingModSize(SCALING_MOD_SIZE)
     parameters.SetScalingTechnique(of.FLEXIBLEAUTO)
     parameters.SetSecurityLevel(of.HEStd_128_classic)
     parameters.SetRingDim(RING_DIMENSION)
@@ -87,20 +48,35 @@ def create_operation_context_and_keys(
         context.Enable(feature)
 
     keys = context.KeyGen()
-    if profile.needs_multiplication_keys:
-        context.EvalMultKeyGen(keys.secretKey)
-    if profile.needs_rotation_keys:
-        context.EvalSumKeyGen(keys.secretKey)
+    # Multiplication/relinearization material for EvalMult.
+    context.EvalMultKeyGen(keys.secretKey)
+    # Rotation material for packed-slot EvalSum.
+    context.EvalSumKeyGen(keys.secretKey)
     return context, keys
 
 
 def create_sum_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
-    """Create the SUM profile used by the large-vector comparison endpoint.
+    """Create the fixed trial context with only the keys required by SUM.
 
-    Keep this named wrapper because the dedicated SUM backend intentionally
-    has a narrower interface than the generic demo evaluator.
+    The benchmark uses this narrower setup so CPU and GPU both generate one
+    context, one key pair, and rotation keys per complete request.
     """
-    return create_operation_context_and_keys(openfhe_module, "sum")
+    of = openfhe_module
+    parameters = of.CCParamsCKKSRNS()
+    parameters.SetMultiplicativeDepth(MULTIPLICATIVE_DEPTH)
+    parameters.SetFirstModSize(FIRST_MOD_SIZE)
+    parameters.SetScalingModSize(SCALING_MOD_SIZE)
+    parameters.SetScalingTechnique(of.FLEXIBLEAUTO)
+    parameters.SetSecurityLevel(of.HEStd_128_classic)
+    parameters.SetRingDim(RING_DIMENSION)
+    parameters.SetBatchSize(BATCH_SIZE)
+
+    context = of.GenCryptoContext(parameters)
+    for feature in (of.PKE, of.KEYSWITCH, of.LEVELEDSHE, of.ADVANCEDSHE):
+        context.Enable(feature)
+    keys = context.KeyGen()
+    context.EvalSumKeyGen(keys.secretKey)
+    return context, keys
 
 
 def add(context: Any, left: Any, right: Any) -> Any:
@@ -145,27 +121,15 @@ def variance_slots(context: Any, encrypted: Any, valid_count: int) -> Any:
 
 
 class OpenFHECPU:
-    """Trusted direct client bound to one operation profile.
+    """Trusted direct client with configured context, keys, and functions.
 
     This class owns a secret key and therefore belongs only in a trusted
     client or direct test. The deployed evaluator does not construct it.
     """
 
-    def __init__(
-        self, operation: str, openfhe_module: Any | None = None
-    ) -> None:
+    def __init__(self, openfhe_module: Any | None = None) -> None:
         of = openfhe_module or importlib.import_module("openfhe")
-        self.operation = operation
-        self.profile = get_operation_profile(operation)
-        self._context, self._keys = create_operation_context_and_keys(
-            of, operation
-        )
-
-    def _require_operation(self, operation: str) -> None:
-        if operation != self.operation:
-            raise ValueError(
-                f"this context uses the {self.operation} profile, not {operation}"
-            )
+        self._context, self._keys = create_trial_context_and_keys(of)
 
     @staticmethod
     def _values(values: Sequence[float]) -> list[float]:
@@ -195,35 +159,28 @@ class OpenFHECPU:
         ]
 
     def add(self, left: Any, right: Any) -> Any:
-        self._require_operation("add")
         return add(self._context, left, right)
 
     def subtract(self, left: Any, right: Any) -> Any:
-        self._require_operation("subtract")
         return subtract(self._context, left, right)
 
     def multiply(self, left: Any, right: Any) -> Any:
-        self._require_operation("multiply")
         return multiply(self._context, left, right)
 
     def square(self, encrypted: Any) -> Any:
-        self._require_operation("square")
         return square(self._context, encrypted)
 
     def sum(self, encrypted: Any, valid_count: int) -> Any:
-        self._require_operation("sum")
         if not 1 <= valid_count <= BATCH_SIZE:
             raise ValueError(f"valid_count must be in [1, {BATCH_SIZE}]")
         return sum_slots(self._context, encrypted, valid_count)
 
     def mean(self, encrypted: Any, valid_count: int) -> Any:
-        self._require_operation("mean")
         if not 1 <= valid_count <= BATCH_SIZE:
             raise ValueError(f"valid_count must be in [1, {BATCH_SIZE}]")
         return mean_slots(self._context, encrypted, valid_count)
 
     def variance(self, encrypted: Any, valid_count: int) -> Any:
-        self._require_operation("variance")
         if not 1 <= valid_count <= BATCH_SIZE:
             raise ValueError(f"valid_count must be in [1, {BATCH_SIZE}]")
         return variance_slots(self._context, encrypted, valid_count)

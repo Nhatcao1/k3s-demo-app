@@ -1,71 +1,36 @@
-# HE parameter profiles (CPU trial)
+# HE parameter reminder
 
-CPU OpenFHE không còn dùng một cấu hình lớn chung cho mọi function. Trusted
-client chọn operation trước, sau đó `openfhe_cpu/runtime.py` tạo context và chỉ
-sinh evaluation key cần cho operation đó. Đây vẫn là correctness-first trial
-config, chưa phải kết quả tối ưu benchmark.
+We are first proving that `add`, `subtract`, `multiply`, `square`, `sum`,
+`mean`, and population `variance` work correctly as exposed services.
+The current OpenFHE settings are test defaults, not final optimized settings.
+They live in one place: `openfhe_cpu/runtime.py`.
 
-## Phần global và phần theo function
+Current trial values are depth `2`, first modulus `60`, scaling modulus `50`,
+ring dimension `16384`, batch size `8192`, and `FLEXIBLEAUTO` scaling. The
+runtime also creates multiplication/relinearization keys and SUM rotation
+keys. A client should use `OpenFHECPU()` instead of repeating this setup.
 
-Các giá trị hiện dùng chung:
+There is no single best HE parameter set for every workload. A longer chain
+of multiplications, a reduction, and a simple addition have different needs.
+Precision, security, memory, ciphertext size, CPU/GPU time, and supported
+calculation depth trade against each other.
 
-| Cấu hình | Giá trị |
-| --- | ---: |
-| Scheme | CKKS |
-| Scaling technique | `FLEXIBLEAUTO` |
-| First modulus | 60 bits |
-| Ring dimension | 16384 |
-| Batch size | 8192 |
-| Security | `HEStd_128_classic` |
+Important settings and behavior to revisit include:
 
-Profile theo operation:
+- multiplicative depth;
+- multiplication/relinearization and rotation keys;
+- CKKS scaling modulus and first modulus;
+- automatic rescaling/scaling behavior;
+- ring dimension, batch size, precision, and error tolerance.
 
-| Function | Depth phép toán | Depth cấp cho context | Scaling modulus | Mult/relin key | Rotation/EvalSum key |
-| --- | ---: | ---: | ---: | --- | --- |
-| `add` | 0 | 1 | 45 | Không | Không |
-| `subtract` | 0 | 1 | 45 | Không | Không |
-| `multiply` | 1 | 1 | 50 | Có | Không |
-| `square` | 1 | 1 | 50 | Có | Không |
-| `sum` | 0 | 1 | 45 | Không | Có |
-| `mean` | 0–1 | 1 | 50 | Không | Có |
-| `variance` | 2–3 | 3 | 55 | Có | Có |
+For CKKS, do not treat a plaintext modulus `p` like the BFV/BGV setting. CKKS
+mainly needs its scaling and modulus chain tuned for the calculation depth and
+required precision.
 
-Depth 0 vẫn cấp `context_depth=1` để OpenFHE có modulus chain CKKS sử dụng
-được. `variance` đang được cấp thận trọng depth 3 và scale 55 vì gồm square,
-scalar multiplication, reductions và square của mean. Các giá trị này phải
-được xác nhận bằng accuracy/latency/memory benchmark trên server trước khi
-giảm hoặc tăng tiếp.
+## Optimization checkpoint
 
-## Chi phí logic của function
-
-| Function | Input | Output | Required key | Mult. depth | Rotations | Notes |
-| --- | --- | --- | --- | ---: | ---: | --- |
-| `encrypt` | `values: Sequence[float]` | `Enc(values)` | Public key | 0 | 0 | `len(values) <= BATCH_SIZE` |
-| `decrypt` | `ciphertext`, `length` | `list[float]` | Secret key | 0 | 0 | Normally client-side only |
-| `add` | `Enc(x)`, `Enc(y)` | `Enc(x+y)` | None | 0 | 0 | Same context and compatible level |
-| `subtract` | `Enc(x)`, `Enc(y)` | `Enc(x-y)` | None | 0 | 0 | Same context and compatible level |
-| `multiply` | `Enc(x)`, `Enc(y)` | `Enc(x*y)` | EvalMult/relinearization key | 1 | 0 | Consumes one multiplicative level |
-| `square` | `Enc(x)` | `Enc(x^2)` | EvalMult/relinearization key | 1 | 0 | Usually cheaper than generic multiply |
-| `sum` | `Enc(x)`, `valid_count` | `Enc(sum(x))` | Rotation/EvalSum keys | 0 | `ceil(log2(valid_count))` logical steps | Result normally stored in slot 0 |
-| `mean` | `Enc(x)`, `valid_count` | `Enc(sum(x)/n)` | Rotation/EvalSum keys | 0–1 | `ceil(log2(valid_count))` logical steps | CT x plaintext constant may consume a level |
-| `variance` | `Enc(x)`, `valid_count` | `Enc(E[x^2]-E[x]^2)` | EvalMult + Rotation/EvalSum keys | 2–3 | About `2*ceil(log2(valid_count))` logical steps | Highest-cost function in this set |
-
-Số rotation thực tế phụ thuộc thuật toán/library. Bảng trên mô tả chi phí
-logic; không được dùng nó để tự suy ra chính xác danh sách rotation index của
-FIDESlib.
-
-## Ranh giới bắt buộc
-
-- Chọn profile trước keygen và encrypt.
-- Không trộn ciphertext hoặc evaluation key giữa các context/profile.
-- `/v1/evaluate` không tự chọn lại parameter; nó thực thi context serialized
-  do trusted client gửi vào.
-- Một request demo chỉ chạy một operation nên dùng profile nhỏ theo function.
-- Một workflow ghép nhiều operation trên cùng ciphertext phải phân tích toàn
-  DAG và tạo **một workflow profile** đủ cho đường nhân sâu nhất. Không được
-  đổi sang profile khác giữa workflow.
-- Với `FLEXIBLEAUTO`, code hiện không gọi `Rescale` thủ công.
-
-Sau khi correctness CPU và GPU ổn định, benchmark từng workload rồi tune
-depth, scaling modulus, ring dimension, batch size, key set, precision và sai
-số. Faster nhưng vượt accuracy tolerance không được xem là tối ưu thành công.
+Keep the defaults while establishing correctness and baseline measurements.
+After all planned CPU and GPU functions pass their benchmarks, return here
+and tune parameters per workload. Every change must rerun both accuracy and
+performance tests; an optimization that is faster but breaks precision does
+not pass.

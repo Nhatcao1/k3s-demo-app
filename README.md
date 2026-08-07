@@ -24,13 +24,12 @@ same image or process. Both images are built from this repository, but remain
 independent processes. The GPU worker receives serialized artifacts through
 its HTTP adapter and performs the HE operations in native FIDESlib C++.
 
-The small operation list is in `common/operations.py`. The operation-specific
-CPU profiles and direct functions live in `openfhe_cpu/runtime.py`, and the
+The small operation list is in `common/operations.py`. The seven explicit
+CPU defaults and direct functions live in `openfhe_cpu/runtime.py`, and the
 serialized evaluator adapter lives in `backends/openfhe_python.py`. The
 matching FIDESlib methods live in `gpu/worker/src/fides_backend.cpp`. The HTTP
-layer contains no HE-library calls. A trusted CPU client selects the operation
-before it creates the context, keys, and ciphertexts; the evaluator uses the
-serialized context sent by that client.
+layer contains no HE-library calls. Parameter profiles and workflow contracts
+are intentionally left for later.
 
 ## Evaluator API
 

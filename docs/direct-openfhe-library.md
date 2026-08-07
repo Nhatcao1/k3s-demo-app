@@ -30,14 +30,10 @@ client/direct_openfhe_cpu_test.py
   -> encrypt -> evaluate -> decrypt -> kiểm tra sai số
 ```
 
-Mỗi case tạo `OpenFHECPU("<operation>")`. Class chọn profile của function trước
-khi tạo context, public key, secret key và ciphertext. Các context khác profile
-không được trộn ciphertext hay evaluation key với nhau.
+`OpenFHECPU` giữ context, public key và secret key trong cùng process vì đây là
+test trực tiếp đáng tin cậy. Nó khác `/v1/evaluate`: service chính chỉ nhận
+ciphertext/evaluation keys và không nhận secret key.
 
-`OpenFHECPU` giữ key trong cùng process vì đây là test trực tiếp đáng tin cậy.
-Nó khác `/v1/evaluate`: service chính chỉ nhận ciphertext/evaluation keys và
-không nhận secret key.
-
-Profile CKKS hiện vẫn là correctness-first trial config trong
-`openfhe_cpu/runtime.py`. Xem `docs/he-parameter-optimization-note.md` để biết
-giá trị của từng function và giới hạn khi ghép nhiều function thành workflow.
+Các tham số CKKS hiện vẫn là trial defaults trong `openfhe_cpu/runtime.py`.
+Chỉ tối ưu depth, modulus chain, scaling/rescale, relinearization và rotations
+sau khi các hàm CPU/GPU đã chạy đúng.
