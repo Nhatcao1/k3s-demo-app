@@ -14,7 +14,7 @@ from typing import Any, Sequence
 
 # Version-1 trial defaults. These are deliberately explicit, but not claimed
 # to be optimal for every future workload.
-MULTIPLICATIVE_DEPTH = 2
+MULTIPLICATIVE_DEPTH = 3
 FIRST_MOD_SIZE = 60
 SCALING_MOD_SIZE = 50
 RING_DIMENSION = 16384

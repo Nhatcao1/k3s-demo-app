@@ -137,7 +137,7 @@ void print_sum_result(
 
 fideslib::CryptoContext<fideslib::DCRTPoly> create_context() {
     fideslib::CCParams<fideslib::CryptoContextCKKSRNS> parameters;
-    parameters.SetMultiplicativeDepth(2);
+    parameters.SetMultiplicativeDepth(3);
     parameters.SetFirstModSize(60);
     parameters.SetScalingModSize(50);
     parameters.SetScalingTechnique(fideslib::FLEXIBLEAUTO);
