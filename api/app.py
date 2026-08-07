@@ -11,12 +11,15 @@ import os
 import time
 from typing import Any, Protocol
 
+from backends.openfhe_demo import OpenFHEDemoBackend
 from backends.openfhe_python import OpenFHEBackendError, OpenFHEPythonBackend
 from common.operations import (
     OPERATIONS,
-    needs_evaluation_keys,
+    needs_multiplication_keys,
     needs_plaintext,
     needs_right_ciphertext,
+    needs_rotation_keys,
+    needs_valid_count,
     validate_operation,
 )
 
@@ -27,6 +30,7 @@ from common.operations import (
 MAX_ARTIFACT_BYTES = int(os.getenv("MAX_ARTIFACT_BYTES", str(32 * 1024 * 1024)))
 MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(100 * 1024 * 1024)))
 MAX_PLAINTEXT_VALUES = int(os.getenv("MAX_PLAINTEXT_VALUES", "8192"))
+MAX_DEMO_VALUES = int(os.getenv("MAX_DEMO_VALUES", "4096"))
 
 
 class RequestError(ValueError):
@@ -48,10 +52,25 @@ class CiphertextEvaluator(Protocol):
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
         plaintext_b: float | tuple[float, ...] | None,
-        evaluation_keys: bytes | None,
+        multiplication_keys: bytes | None,
+        rotation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
         """Return one serialized result ciphertext."""
+
+
+class DemoEvaluator(Protocol):
+    backend_name: str
+
+    @property
+    def ready(self) -> bool: ...
+
+    def evaluate(
+        self,
+        operation: str,
+        values_a: list[float],
+        values_b: list[float] | None,
+    ) -> list[float]: ...
 
 
 def _decode_artifact(payload: dict[str, Any], name: str) -> bytes:
@@ -92,6 +111,8 @@ def evaluate_request(
         "ciphertext_b",
         "plaintext_b",
         "evaluation_keys",
+        "multiplication_keys",
+        "rotation_keys",
         "valid_count",
         "request_id",
     }
@@ -150,20 +171,52 @@ def evaluate_request(
     elif "plaintext_b" in payload:
         raise RequestError(f"{operation} does not accept plaintext_b")
 
-    evaluation_keys = None
-    if needs_evaluation_keys(operation):
-        evaluation_keys = _decode_artifact(payload, "evaluation_keys")
-    elif "evaluation_keys" in payload:
-        raise RequestError(f"{operation} does not accept evaluation_keys")
+    key_fields = {
+        name for name in (
+            "evaluation_keys", "multiplication_keys", "rotation_keys"
+        ) if name in payload
+    }
+    multiplication_keys = None
+    rotation_keys = None
+    if operation == "variance":
+        if "evaluation_keys" in key_fields:
+            raise RequestError(
+                "variance requires separate multiplication_keys and rotation_keys"
+            )
+        multiplication_keys = _decode_artifact(payload, "multiplication_keys")
+        rotation_keys = _decode_artifact(payload, "rotation_keys")
+    elif needs_multiplication_keys(operation):
+        if key_fields == {"evaluation_keys"}:
+            multiplication_keys = _decode_artifact(payload, "evaluation_keys")
+        elif key_fields == {"multiplication_keys"}:
+            multiplication_keys = _decode_artifact(payload, "multiplication_keys")
+        else:
+            raise RequestError(
+                f"{operation} requires exactly one of evaluation_keys or "
+                "multiplication_keys"
+            )
+    elif needs_rotation_keys(operation):
+        if key_fields == {"evaluation_keys"}:
+            rotation_keys = _decode_artifact(payload, "evaluation_keys")
+        elif key_fields == {"rotation_keys"}:
+            rotation_keys = _decode_artifact(payload, "rotation_keys")
+        else:
+            raise RequestError(
+                f"{operation} requires exactly one of evaluation_keys or rotation_keys"
+            )
+    elif key_fields:
+        raise RequestError(f"{operation} does not accept evaluation keys")
 
     valid_count = payload.get("valid_count")
-    if operation == "sum":
+    if needs_valid_count(operation):
         if (
             isinstance(valid_count, bool)
             or not isinstance(valid_count, int)
             or valid_count < 1
         ):
-            raise RequestError("valid_count must be a positive integer for sum")
+            raise RequestError(
+                f"valid_count must be a positive integer for {operation}"
+            )
     elif "valid_count" in payload:
         raise RequestError(f"{operation} does not accept valid_count")
 
@@ -177,7 +230,8 @@ def evaluate_request(
             ciphertext_a,
             ciphertext_b,
             plaintext_b,
-            evaluation_keys,
+            multiplication_keys,
+            rotation_keys,
             valid_count,
         )
     except OpenFHEBackendError as error:
@@ -194,7 +248,71 @@ def evaluate_request(
     return response
 
 
-def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]:
+def _demo_values(payload: dict[str, Any], name: str) -> list[float]:
+    values = payload.get(name)
+    if not isinstance(values, list) or not 1 <= len(values) <= MAX_DEMO_VALUES:
+        raise RequestError(
+            f"{name} must contain between 1 and {MAX_DEMO_VALUES} numbers"
+        )
+    result: list[float] = []
+    for value in values:
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+        ):
+            raise RequestError(f"{name} must contain only finite numbers")
+        result.append(float(value))
+    return result
+
+
+def evaluate_demo_request(
+    payload: Any, evaluator: DemoEvaluator
+) -> dict[str, Any]:
+    """Run a plaintext diagnostic through real keygen/encrypt/HE/decrypt."""
+    if not isinstance(payload, dict):
+        raise RequestError("request body must be a JSON object")
+    unexpected = sorted(
+        set(payload) - {"operation", "values_a", "values_b", "request_id"}
+    )
+    if unexpected:
+        raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
+    try:
+        operation = validate_operation(payload.get("operation"))
+    except ValueError as error:
+        raise RequestError(str(error)) from error
+    values_a = _demo_values(payload, "values_a")
+    values_b = None
+    if needs_right_ciphertext(operation) or needs_plaintext(operation):
+        values_b = _demo_values(payload, "values_b")
+        if len(values_a) != len(values_b):
+            raise RequestError("values_a and values_b must have equal length")
+    elif "values_b" in payload:
+        raise RequestError(f"{operation} does not accept values_b")
+    request_id = payload.get("request_id")
+    if request_id is not None and (
+        not isinstance(request_id, str) or not request_id or len(request_id) > 128
+    ):
+        raise RequestError(
+            "request_id must be a non-empty string of at most 128 characters"
+        )
+    started = time.perf_counter()
+    values = evaluator.evaluate(operation, values_a, values_b)
+    response: dict[str, Any] = {
+        "operation": operation,
+        "backend": evaluator.backend_name,
+        "values": values,
+        "evaluation_seconds": time.perf_counter() - started,
+        "demo_trust_model": "plaintext enters the CPU service",
+    }
+    if request_id is not None:
+        response["request_id"] = request_id
+    return response
+
+
+def make_handler(
+    evaluator: CiphertextEvaluator, demo_evaluator: DemoEvaluator
+) -> type[BaseHTTPRequestHandler]:
     """Create a request handler bound to one evaluator."""
 
     class Handler(BaseHTTPRequestHandler):
@@ -216,10 +334,11 @@ def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]
             if self.path == "/healthz":
                 self._send_json(200, {"status": "ok"})
             elif self.path == "/readyz":
-                status = 200 if evaluator.ready else 503
+                ready = evaluator.ready and demo_evaluator.ready
+                status = 200 if ready else 503
                 self._send_json(
                     status,
-                    {"status": "ready" if evaluator.ready else "not_ready"},
+                    {"status": "ready" if ready else "not_ready"},
                 )
             elif self.path == "/v1/capabilities":
                 self._send_json(
@@ -230,13 +349,19 @@ def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]
                         "backend": evaluator.backend_name,
                         "serialization": evaluator.serialization,
                         "secret_key_required_by_api": False,
+                        "native_demo_endpoint": "/v1/demo/evaluate",
+                        "native_demo_operations": list(OPERATIONS),
+                        "key_contract": {
+                            "variance": ["multiplication_keys", "rotation_keys"],
+                            "legacy_single_key_field": "evaluation_keys",
+                        },
                     },
                 )
             else:
                 self._send_json(404, {"error": "not_found"})
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path != "/v1/evaluate":
+            if self.path not in ("/v1/evaluate", "/v1/demo/evaluate"):
                 self._send_json(404, {"error": "not_found"})
                 return
             content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
@@ -253,7 +378,11 @@ def make_handler(evaluator: CiphertextEvaluator) -> type[BaseHTTPRequestHandler]
                 return
             try:
                 payload = json.loads(self.rfile.read(content_length))
-                response = evaluate_request(payload, evaluator)
+                response = (
+                    evaluate_demo_request(payload, demo_evaluator)
+                    if self.path == "/v1/demo/evaluate"
+                    else evaluate_request(payload, evaluator)
+                )
             except (json.JSONDecodeError, UnicodeDecodeError):
                 self._send_json(400, {"error": "invalid_json"})
             except RequestError as error:
@@ -270,9 +399,11 @@ def create_server(
     host: str = "0.0.0.0",
     port: int = 8080,
     evaluator: CiphertextEvaluator | None = None,
+    demo_evaluator: DemoEvaluator | None = None,
 ) -> HTTPServer:
     selected = evaluator or OpenFHEPythonBackend()
-    return HTTPServer((host, port), make_handler(selected))
+    selected_demo = demo_evaluator or OpenFHEDemoBackend()
+    return HTTPServer((host, port), make_handler(selected, selected_demo))
 
 
 def main() -> None:

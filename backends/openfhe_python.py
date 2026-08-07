@@ -7,7 +7,16 @@ import tempfile
 import threading
 from typing import Any
 
-from openfhe_cpu.runtime import add, multiply, multiply_plain, subtract, sum_slots
+from openfhe_cpu.runtime import (
+    add,
+    mean_slots,
+    multiply,
+    multiply_plain,
+    square,
+    subtract,
+    sum_slots,
+    variance_slots,
+)
 
 
 class OpenFHEBackendError(ValueError):
@@ -61,9 +70,24 @@ class OpenFHEPythonBackend:
         return multiply_plain(context, encrypted, operand)
 
     @staticmethod
+    def square(context: Any, encrypted: Any) -> Any:
+        """Ciphertext squared; requires multiplication evaluation keys."""
+        return square(context, encrypted)
+
+    @staticmethod
     def sum(context: Any, encrypted: Any, valid_count: int) -> Any:
         """Reduce valid packed slots; requires rotation/SUM evaluation keys."""
         return sum_slots(context, encrypted, valid_count)
+
+    @staticmethod
+    def mean(context: Any, encrypted: Any, valid_count: int) -> Any:
+        """Encrypted SUM followed by public scalar multiplication by 1/n."""
+        return mean_slots(context, encrypted, valid_count)
+
+    @staticmethod
+    def variance(context: Any, encrypted: Any, valid_count: int) -> Any:
+        """Population variance; requires multiplication and rotation keys."""
+        return variance_slots(context, encrypted, valid_count)
 
     @staticmethod
     def _deserialize_ciphertext(openfhe: Any, path: Path, field: str) -> Any:
@@ -79,7 +103,8 @@ class OpenFHEPythonBackend:
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
         plaintext_b: float | tuple[float, ...] | None,
-        evaluation_keys: bytes | None,
+        multiplication_keys: bytes | None,
+        rotation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
         """Run the serialized transport boundary for one HE operation.
@@ -115,27 +140,40 @@ class OpenFHEPythonBackend:
             if not ok:
                 raise OpenFHEBackendError("could not deserialize context")
 
-            if evaluation_keys is not None:
-                key_path = root / "evaluation-keys.bin"
-                key_path.write_bytes(evaluation_keys)
-                if operation == "multiply":
-                    ok = crypto_context.DeserializeEvalMultKey(
-                        str(key_path), openfhe.BINARY
-                    )
-                else:
-                    ok = crypto_context.DeserializeEvalAutomorphismKey(
-                        str(key_path), openfhe.BINARY
-                    )
+            if multiplication_keys is not None:
+                key_path = root / "multiplication-keys.bin"
+                key_path.write_bytes(multiplication_keys)
+                ok = crypto_context.DeserializeEvalMultKey(
+                    str(key_path), openfhe.BINARY
+                )
                 if not ok:
                     raise OpenFHEBackendError(
-                        "could not deserialize evaluation_keys"
+                        "could not deserialize multiplication_keys"
+                    )
+
+            if rotation_keys is not None:
+                key_path = root / "rotation-keys.bin"
+                key_path.write_bytes(rotation_keys)
+                ok = crypto_context.DeserializeEvalAutomorphismKey(
+                    str(key_path), openfhe.BINARY
+                )
+                if not ok:
+                    raise OpenFHEBackendError(
+                        "could not deserialize rotation_keys"
                     )
 
             left = self._deserialize_ciphertext(openfhe, left_path, "ciphertext_a")
 
-            if operation == "sum":
+            if operation in ("sum", "mean", "variance"):
                 assert valid_count is not None
-                result = self.sum(crypto_context, left, valid_count)
+                reductions = {
+                    "sum": self.sum,
+                    "mean": self.mean,
+                    "variance": self.variance,
+                }
+                result = reductions[operation](crypto_context, left, valid_count)
+            elif operation == "square":
+                result = self.square(crypto_context, left)
             elif operation == "multiply_plain":
                 assert plaintext_b is not None
                 result = self.multiply_plain(crypto_context, left, plaintext_b)

@@ -7,7 +7,12 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from api.app import RequestError, create_server, evaluate_request
+from api.app import (
+    RequestError,
+    create_server,
+    evaluate_demo_request,
+    evaluate_request,
+)
 class FakeEvaluator:
     backend_name = "test-backend"
     serialization = "test-bytes-base64"
@@ -20,7 +25,8 @@ class FakeEvaluator:
         ciphertext_a: bytes,
         ciphertext_b: bytes | None,
         plaintext_b: float | tuple[float, ...] | None,
-        evaluation_keys: bytes | None,
+        multiplication_keys: bytes | None,
+        rotation_keys: bytes | None,
         valid_count: int | None,
     ) -> bytes:
         self.received = (
@@ -29,10 +35,37 @@ class FakeEvaluator:
             ciphertext_a,
             ciphertext_b,
             plaintext_b,
-            evaluation_keys,
+            multiplication_keys,
+            rotation_keys,
             valid_count,
         )
         return b"encrypted-result"
+
+
+class FakeDemoEvaluator:
+    backend_name = "cpu-openfhe-native-test"
+    ready = True
+
+    def evaluate(
+        self,
+        operation: str,
+        values_a: list[float],
+        values_b: list[float] | None,
+    ) -> list[float]:
+        self.received = (operation, values_a, values_b)
+        if operation == "square":
+            return [value * value for value in values_a]
+        if operation == "sum":
+            return [sum(values_a)]
+        if operation == "mean":
+            return [sum(values_a) / len(values_a)]
+        if operation == "variance":
+            mean = sum(values_a) / len(values_a)
+            return [sum((value - mean) ** 2 for value in values_a) / len(values_a)]
+        assert values_b is not None
+        if operation == "multiply_plain":
+            return [left * right for left, right in zip(values_a, values_b)]
+        return [left + right for left, right in zip(values_a, values_b)]
 
 
 def encoded(value: bytes) -> str:
@@ -57,7 +90,7 @@ class EvaluateRequestTests(unittest.TestCase):
         result = evaluate_request(primitive_payload(), evaluator)
         self.assertEqual(
             evaluator.received,
-            ("add", b"context", b"left", b"right", None, None, None),
+            ("add", b"context", b"left", b"right", None, None, None, None),
         )
         self.assertEqual(base64.b64decode(result["ciphertext"]), b"encrypted-result")
         self.assertEqual(result["backend"], "test-backend")
@@ -83,7 +116,10 @@ class EvaluateRequestTests(unittest.TestCase):
         )
         self.assertEqual(
             evaluator.received,
-            ("sum", b"context", b"values", None, None, b"sum-keys", 8192),
+            (
+                "sum", b"context", b"values", None, None,
+                None, b"sum-keys", 8192,
+            ),
         )
         self.assertEqual(result["request_id"], "sum-8192")
 
@@ -100,7 +136,10 @@ class EvaluateRequestTests(unittest.TestCase):
         )
         self.assertEqual(
             evaluator.received,
-            ("multiply_plain", b"context", b"values", None, 0.8, None, None),
+            (
+                "multiply_plain", b"context", b"values", None, 0.8,
+                None, None, None,
+            ),
         )
 
     def test_multiply_plain_accepts_finite_vector(self) -> None:
@@ -137,10 +176,70 @@ class EvaluateRequestTests(unittest.TestCase):
         with self.assertRaisesRegex(RequestError, "unexpected fields"):
             evaluate_request(payload, FakeEvaluator())
 
+    def test_square_mean_and_variance_contracts(self) -> None:
+        evaluator = FakeEvaluator()
+        square = primitive_payload("square")
+        del square["ciphertext_b"]
+        square["evaluation_keys"] = encoded(b"mult-keys")
+        evaluate_request(square, evaluator)
+        self.assertEqual(
+            evaluator.received,
+            (
+                "square", b"context", b"left", None, None,
+                b"mult-keys", None, None,
+            ),
+        )
+
+        evaluate_request(
+            {
+                "operation": "mean",
+                "context": encoded(b"context"),
+                "ciphertext_a": encoded(b"values"),
+                "evaluation_keys": encoded(b"rotation-keys"),
+                "valid_count": 4,
+            },
+            evaluator,
+        )
+        self.assertEqual(evaluator.received[-2:], (b"rotation-keys", 4))
+
+        evaluate_request(
+            {
+                "operation": "variance",
+                "context": encoded(b"context"),
+                "ciphertext_a": encoded(b"values"),
+                "multiplication_keys": encoded(b"mult-keys"),
+                "rotation_keys": encoded(b"rotation-keys"),
+                "valid_count": 4,
+            },
+            evaluator,
+        )
+        self.assertEqual(
+            evaluator.received[-3:],
+            (b"mult-keys", b"rotation-keys", 4),
+        )
+
+    def test_demo_exposes_square_mean_and_variance(self) -> None:
+        evaluator = FakeDemoEvaluator()
+        for operation, expected in (
+            ("square", [1.0, 4.0, 9.0, 16.0]),
+            ("mean", [2.5]),
+            ("variance", [1.25]),
+        ):
+            result = evaluate_demo_request(
+                {"operation": operation, "values_a": [1, 2, 3, 4]},
+                evaluator,
+            )
+            self.assertEqual(result["values"], expected)
+
 
 class HttpApiTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.server = create_server(host="127.0.0.1", port=0, evaluator=FakeEvaluator())
+        self.server = create_server(
+            host="127.0.0.1",
+            port=0,
+            evaluator=FakeEvaluator(),
+            demo_evaluator=FakeDemoEvaluator(),
+        )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base_url = f"http://127.0.0.1:{self.server.server_port}"
@@ -154,9 +253,13 @@ class HttpApiTests(unittest.TestCase):
         with urlopen(self.base_url + path, timeout=2) as response:
             return response.status, json.load(response)
 
-    def post(self, payload: dict[str, object]) -> dict[str, object]:
+    def post(
+        self,
+        payload: dict[str, object],
+        path: str = "/v1/evaluate",
+    ) -> dict[str, object]:
         request = Request(
-            self.base_url + "/v1/evaluate",
+            self.base_url + path,
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -171,7 +274,10 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(
             payload["operations"],
-            ["add", "subtract", "multiply", "multiply_plain", "sum"],
+            [
+                "add", "subtract", "multiply", "multiply_plain",
+                "square", "sum", "mean", "variance",
+            ],
         )
         self.assertEqual(payload["backend"], "test-backend")
         self.assertFalse(payload["secret_key_required_by_api"])
@@ -180,6 +286,13 @@ class HttpApiTests(unittest.TestCase):
         result = self.post(primitive_payload("subtract"))
         self.assertEqual(result["operation"], "subtract")
         self.assertEqual(base64.b64decode(result["ciphertext"]), b"encrypted-result")
+
+    def test_demo_mean_endpoint(self) -> None:
+        result = self.post(
+            {"operation": "mean", "values_a": [1, 2, 3, 4]},
+            "/v1/demo/evaluate",
+        )
+        self.assertEqual(result["values"], [2.5])
 
     def test_rejects_secret_key_field(self) -> None:
         payload = primitive_payload()

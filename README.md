@@ -4,7 +4,9 @@ This repository now builds one secretless **CPU OpenFHE evaluator**. The first
 scope is intentionally small:
 
 - primitives: `add`, `subtract`, `multiply`;
-- reduction: `sum`.
+- public operand: `multiply_plain`;
+- unary: `square`;
+- reductions: `sum`, `mean`, population `variance`.
 
 The API accepts serialized CKKS context, evaluation keys when required, and
 ciphertexts. It never accepts plaintext or a secret key and returns only a
@@ -38,6 +40,7 @@ GET  /healthz
 GET  /readyz
 GET  /v1/capabilities
 POST /v1/evaluate
+POST /v1/demo/evaluate
 ```
 
 Primitive request:
@@ -68,6 +71,26 @@ keys. A SUM request uses one ciphertext:
 For data larger than one CKKS batch, the trusted client encrypts chunks, calls
 `sum` for each chunk, then combines the encrypted partial scalars with `add`.
 
+The plaintext demo endpoint still performs real key generation, encryption,
+HE evaluation, and decryption inside the CPU image. It is intended only for a
+quick functional check:
+
+```sh
+curl -sS -X POST http://127.0.0.1:18080/v1/demo/evaluate \
+  -H 'Content-Type: application/json' \
+  -d '{"operation":"square","values_a":[1,2,3,4]}'
+
+curl -sS -X POST http://127.0.0.1:18080/v1/demo/evaluate \
+  -H 'Content-Type: application/json' \
+  -d '{"operation":"mean","values_a":[1,2,3,4]}'
+
+curl -sS -X POST http://127.0.0.1:18080/v1/demo/evaluate \
+  -H 'Content-Type: application/json' \
+  -d '{"operation":"variance","values_a":[1,2,3,4]}'
+```
+
+Expected values are `[1,4,9,16]`, `[2.5]`, and `[1.25]`.
+
 ## GitLab pipeline
 
 Contract tests require no HE installation. On the default branch, GitLab CI
@@ -75,6 +98,7 @@ builds and pushes:
 
 ```text
 docker.io/dockerboi99/he_k8s:cpu-<full-commit-sha>
+docker.io/dockerboi99/he_k8s:cpu-<8-character-short-sha>
 docker.io/dockerboi99/he_k8s:cpu-latest
 docker.io/dockerboi99/he_k8s:gpu-<full-commit-sha>
 docker.io/dockerboi99/he_k8s:gpu-latest

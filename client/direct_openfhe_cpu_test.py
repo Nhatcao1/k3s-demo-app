@@ -44,9 +44,34 @@ def main() -> None:
             [a * b for a, b in zip(LEFT, RIGHT)],
             len(LEFT),
         ),
+        "multiply_plain": (
+            he.multiply_plain(left, 0.8),
+            [value * 0.8 for value in LEFT],
+            len(LEFT),
+        ),
+        "square": (
+            he.square(left),
+            [value * value for value in LEFT],
+            len(LEFT),
+        ),
         "sum": (
             he.sum(left, len(LEFT)),
             [sum(LEFT)],
+            1,
+        ),
+        "mean": (
+            he.mean(left, len(LEFT)),
+            [sum(LEFT) / len(LEFT)],
+            1,
+        ),
+        "variance": (
+            he.variance(left, len(LEFT)),
+            [
+                sum(
+                    (value - sum(LEFT) / len(LEFT)) ** 2
+                    for value in LEFT
+                ) / len(LEFT)
+            ],
             1,
         ),
     }

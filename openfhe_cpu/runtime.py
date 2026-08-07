@@ -14,7 +14,7 @@ from typing import Any, Sequence
 
 # Version-1 trial defaults. These are deliberately explicit, but not claimed
 # to be optimal for every future workload.
-MULTIPLICATIVE_DEPTH = 1
+MULTIPLICATIVE_DEPTH = 2
 FIRST_MOD_SIZE = 60
 SCALING_MOD_SIZE = 50
 RING_DIMENSION = 16384
@@ -101,8 +101,34 @@ def multiply_plain(context: Any, encrypted: Any, plaintext: Any) -> Any:
     return context.EvalMult(encrypted, plaintext)
 
 
+def square(context: Any, encrypted: Any) -> Any:
+    return context.EvalSquare(encrypted)
+
+
 def sum_slots(context: Any, encrypted: Any, valid_count: int) -> Any:
     return context.EvalSum(encrypted, valid_count)
+
+
+def mean_slots(context: Any, encrypted: Any, valid_count: int) -> Any:
+    return context.EvalMult(
+        context.EvalSum(encrypted, valid_count), 1.0 / valid_count
+    )
+
+
+def variance_slots(context: Any, encrypted: Any, valid_count: int) -> Any:
+    """Return encrypted population variance: E[x^2] - E[x]^2."""
+    inverse_count = 1.0 / valid_count
+    encrypted_sum = context.EvalSum(encrypted, valid_count)
+    encrypted_square = context.EvalSquare(encrypted)
+    encrypted_square_sum = context.EvalSum(encrypted_square, valid_count)
+    encrypted_mean = context.EvalMult(encrypted_sum, inverse_count)
+    encrypted_second_moment = context.EvalMult(
+        encrypted_square_sum, inverse_count
+    )
+    return context.EvalSub(
+        encrypted_second_moment,
+        context.EvalSquare(encrypted_mean),
+    )
 
 
 class OpenFHECPU:
@@ -163,7 +189,20 @@ class OpenFHECPU:
         plaintext = self._context.MakeCKKSPackedPlaintext(self._values(values))
         return multiply_plain(self._context, encrypted, plaintext)
 
+    def square(self, encrypted: Any) -> Any:
+        return square(self._context, encrypted)
+
     def sum(self, encrypted: Any, valid_count: int) -> Any:
         if not 1 <= valid_count <= BATCH_SIZE:
             raise ValueError(f"valid_count must be in [1, {BATCH_SIZE}]")
         return sum_slots(self._context, encrypted, valid_count)
+
+    def mean(self, encrypted: Any, valid_count: int) -> Any:
+        if not 1 <= valid_count <= BATCH_SIZE:
+            raise ValueError(f"valid_count must be in [1, {BATCH_SIZE}]")
+        return mean_slots(self._context, encrypted, valid_count)
+
+    def variance(self, encrypted: Any, valid_count: int) -> Any:
+        if not 1 <= valid_count <= BATCH_SIZE:
+            raise ValueError(f"valid_count must be in [1, {BATCH_SIZE}]")
+        return variance_slots(self._context, encrypted, valid_count)

@@ -5,11 +5,11 @@
 Develop only these logical operations first:
 
 ```text
-add, subtract, multiply, sum
+add, subtract, multiply, multiply_plain, square, sum, mean, variance
 ```
 
 The shared names live in `common/operations.py`. The OpenFHE and FIDESlib
-backends each expose direct methods for the four operations. Parameter
+backends expose direct methods for these operations. Parameter
 profiles, workflow contracts, MIN/MAX, mean, variance, model inference, and
 other workloads wait.
 
@@ -48,12 +48,14 @@ operation and verifies the decrypted answer.
 
 ```text
 POST /v1/evaluate
-operation = add | subtract | multiply | sum
+operation = add | subtract | multiply | multiply_plain | square | sum | mean | variance
 ```
 
 - `add`, `subtract`: context + two ciphertexts;
 - `multiply`: context + EvalMult keys + two ciphertexts;
-- `sum`: context + automorphism/SUM keys + one ciphertext + `valid_count`.
+- `sum`, `mean`: context + automorphism/SUM keys + one ciphertext + `valid_count`.
+- `variance`: context + multiplication keys + rotation keys + one ciphertext
+  + `valid_count`; result is population variance.
 
 The response contains backend, operation, evaluation time, and result
 ciphertext. It contains no plaintext result.
