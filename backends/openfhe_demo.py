@@ -28,7 +28,9 @@ class OpenFHEDemoBackend:
         values_a: Sequence[float],
         values_b: Sequence[float] | None,
     ) -> list[float]:
-        he = OpenFHECPU()
+        # A demo request owns one complete HE lifecycle, so it can choose the
+        # smallest reviewed CKKS profile before key generation and encryption.
+        he = OpenFHECPU(operation)
         left = he.encrypt(values_a)
         if needs_valid_count(operation):
             encrypted = getattr(he, operation)(left, len(values_a))

@@ -18,7 +18,7 @@ level thực tế.
 | `sum` | `ciphertext_a`, `valid_count` | Rotation/automorphism | 0 | Có | ✅ API `AccumulateSum` |
 | `mean` | `ciphertext_a`, `valid_count` | Rotation/automorphism | 1 | Như `sum` | 🟡 `AccumulateSum`, sau đó `EvalMult(1/n)` |
 | `weighted_sum` / `dot_product` | `ciphertext_a`, plaintext `weights` | Rotation/automorphism | 1 | Có | 🟡 `EvalMult(ct, pt)` + `AccumulateSum` |
-| `variance` | `ciphertext_a`, `valid_count` | Multiplication/relinearization + rotation | 2 | Có | 🟡 Ghép `square`, `sum`, `mean` |
+| `variance` | `ciphertext_a`, `valid_count` | Multiplication/relinearization + rotation | 2 (CPU trial cấp context 3) | Có | 🟡 Ghép `square`, `sum`, `mean` |
 | `covariance` | `ciphertext_a`, `ciphertext_b`, `valid_count` | Multiplication/relinearization + rotation | 2 | Có | 🟡 Ghép `multiply`, `sum`, `mean` |
 | `rolling_mean` | `ciphertext_a`, `window_size` | Rotation/automorphism | 1 | Theo cửa sổ | 🟡 `EvalRotate` + `EvalAdd` + nhân scalar |
 | `polynomial_score` | `ciphertext_a`, public `coefficients` | Multiplication/relinearization; bootstrap nếu chain không đủ | Phụ thuộc cách tính | Thường không | 🟡 Ghép các primitive CKKS |
@@ -88,8 +88,9 @@ Trạng thái hiện tại:
 3. Thêm `weighted_sum` theo đầy đủ quy tắc function ở trên; cần contract để
    nhận và serialize plaintext weights.
 4. Thêm `covariance`; dùng cùng contract hai bundle key của `variance`.
-5. Tối ưu multiplicative depth, modulus chain, rescale, relinearization và
-   rotation set sau khi toàn bộ hàm CPU/GPU chạy đúng.
+5. CPU hiện đã tách correctness-first profile theo operation. Sau khi toàn bộ
+   hàm CPU/GPU chạy đúng, benchmark rồi mới tối ưu tiếp modulus chain, scale,
+   spare depth và rotation set của từng workload.
 
 `compare_threshold` và `max` chưa được expose: OpenFHE CPU có API scheme
 switch CKKS/FHEW nhưng service hiện chưa có context/key/serialization contract

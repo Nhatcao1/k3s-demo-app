@@ -12,7 +12,10 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from openfhe_cpu.runtime import create_trial_context_and_keys
+from openfhe_cpu.runtime import (
+    create_operation_context_and_keys,
+    get_operation_profile,
+)
 
 
 LEFT = [1.25, -2.0, 3.5, 4.0]
@@ -72,14 +75,6 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
     except ImportError as error:
         raise RuntimeError("run this demo from the cpu-latest image") from error
 
-    context, keys = create_trial_context_and_keys(openfhe)
-    left_ciphertext = context.Encrypt(
-        keys.publicKey, context.MakeCKKSPackedPlaintext(LEFT)
-    )
-    right_ciphertext = context.Encrypt(
-        keys.publicKey, context.MakeCKKSPackedPlaintext(RIGHT)
-    )
-
     expected = {
         "add": [left + right for left, right in zip(LEFT, RIGHT, strict=True)],
         "subtract": [left - right for left, right in zip(LEFT, RIGHT, strict=True)],
@@ -97,26 +92,28 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
 
     with tempfile.TemporaryDirectory(prefix="he-cpu-demo-") as directory:
         root = Path(directory)
-        context_encoded = _encode(_serialize(openfhe, root / "context.bin", context))
-        left_encoded = _encode(
-            _serialize(openfhe, root / "left.bin", left_ciphertext)
-        )
-        right_encoded = _encode(
-            _serialize(openfhe, root / "right.bin", right_ciphertext)
-        )
-
-        mult_key_path = root / "eval-mult.bin"
-        if not context.SerializeEvalMultKey(str(mult_key_path), openfhe.BINARY):
-            raise RuntimeError("could not serialize multiplication keys")
-        sum_key_path = root / "eval-sum.bin"
-        if not context.SerializeEvalAutomorphismKey(str(sum_key_path), openfhe.BINARY):
-            raise RuntimeError("could not serialize sum keys")
-
         results: dict[str, Any] = {}
         for operation in (
             "add", "subtract", "multiply", "square", "sum", "mean",
             "variance",
         ):
+            profile = get_operation_profile(operation)
+            context, keys = create_operation_context_and_keys(
+                openfhe, operation
+            )
+            left_ciphertext = context.Encrypt(
+                keys.publicKey, context.MakeCKKSPackedPlaintext(LEFT)
+            )
+            operation_root = root / operation
+            operation_root.mkdir()
+            context_encoded = _encode(
+                _serialize(openfhe, operation_root / "context.bin", context)
+            )
+            left_encoded = _encode(
+                _serialize(
+                    openfhe, operation_root / "left.bin", left_ciphertext
+                )
+            )
             payload: dict[str, Any] = {
                 "operation": operation,
                 "context": context_encoded,
@@ -124,17 +121,49 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
                 "request_id": f"cpu-demo-{operation}",
             }
             if operation in ("add", "subtract", "multiply"):
+                right_ciphertext = context.Encrypt(
+                    keys.publicKey,
+                    context.MakeCKKSPackedPlaintext(RIGHT),
+                )
+                right_encoded = _encode(
+                    _serialize(
+                        openfhe,
+                        operation_root / "right.bin",
+                        right_ciphertext,
+                    )
+                )
                 payload["ciphertext_b"] = right_encoded
+
+            multiplication_keys = None
+            if profile.needs_multiplication_keys:
+                mult_key_path = operation_root / "eval-mult.bin"
+                if not context.SerializeEvalMultKey(
+                    str(mult_key_path), openfhe.BINARY
+                ):
+                    raise RuntimeError(
+                        f"{operation}: could not serialize multiplication keys"
+                    )
+                multiplication_keys = _encode(mult_key_path.read_bytes())
+
+            rotation_keys = None
+            if profile.needs_rotation_keys:
+                sum_key_path = operation_root / "eval-sum.bin"
+                if not context.SerializeEvalAutomorphismKey(
+                    str(sum_key_path), openfhe.BINARY
+                ):
+                    raise RuntimeError(
+                        f"{operation}: could not serialize rotation keys"
+                    )
+                rotation_keys = _encode(sum_key_path.read_bytes())
+
             if operation in ("multiply", "square"):
-                payload["evaluation_keys"] = _encode(mult_key_path.read_bytes())
+                payload["evaluation_keys"] = multiplication_keys
             if operation in ("sum", "mean"):
-                payload["evaluation_keys"] = _encode(sum_key_path.read_bytes())
+                payload["evaluation_keys"] = rotation_keys
                 payload["valid_count"] = len(LEFT)
             if operation == "variance":
-                payload["multiplication_keys"] = _encode(
-                    mult_key_path.read_bytes()
-                )
-                payload["rotation_keys"] = _encode(sum_key_path.read_bytes())
+                payload["multiplication_keys"] = multiplication_keys
+                payload["rotation_keys"] = rotation_keys
                 payload["valid_count"] = len(LEFT)
 
             response = _post(url, payload, timeout)
@@ -147,7 +176,7 @@ def run_demo(url: str, timeout: float, tolerance: float) -> dict[str, Any]:
                 keys.secretKey,
                 encoded_result,
                 1 if operation in ("sum", "mean", "variance") else len(LEFT),
-                root / f"{operation}-result.bin",
+                operation_root / "result.bin",
             )
             maximum_error = max(
                 abs(got - want)
