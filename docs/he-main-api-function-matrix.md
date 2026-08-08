@@ -22,6 +22,9 @@ level thực tế.
 | `covariance` | `ciphertext_a`, `ciphertext_b`, `valid_count` | Multiplication/relinearization + rotation | 2 | Có | 🟡 Ghép `multiply`, `sum`, `mean` |
 | `rolling_mean` | `ciphertext_a`, `window_size` | Rotation/automorphism | 1 | Theo cửa sổ | 🟡 `EvalRotate` + `EvalAdd` + nhân scalar |
 | `polynomial_score` | `ciphertext_a`, public `coefficients` | Multiplication/relinearization; bootstrap nếu chain không đủ | Phụ thuộc cách tính | Thường không | 🟡 Ghép các primitive CKKS |
+| `matrix_vector_multiply` | PT/CT matrix, encrypted vector, public dimensions/layout | Phụ thuộc PT×CT hay CT×CT + rotation | Phụ thuộc layout | Có | 🟡 GPU-first; phải chốt packing/tiling trước |
+| `matrix_multiply` | PT/CT matrix A, CT matrix B, public dimensions/layout | Multiplication/relinearization + rotation | Phụ thuộc layout | Nhiều | 🟡 GPU-first experimental |
+| `linear_layer` | encrypted input, plaintext weights và bias | Rotation; multiplication key nếu dùng CT weights | Ít nhất 1 | Có | 🟡 GPU-first trên `matrix_vector_multiply` |
 | `compare_threshold` | `ciphertext_a`, `threshold` | Scheme-switch/FHEW keys | — | Không | ❌ Không có trong API FIDESlib hiện tại |
 | `max` | `ciphertext_a`, `valid_count` | Compare/scheme-switch keys | — | Nhiều vòng | ❌ Không có trong API FIDESlib hiện tại |
 
@@ -80,16 +83,71 @@ Trạng thái hiện tại:
 | CPU | bảy hàm | `/v1/demo/evaluate`: đủ bảy hàm; `/v1/demo/sum`: SUM lớn | benchmark từng hàm ngoài SUM |
 | GPU | bảy hàm | `/v1/demo/evaluate`: đủ bảy hàm; `/v1/demo/sum`: SUM lớn | benchmark từng hàm ngoài SUM |
 
-## Thứ tự phát triển tiếp
+## Lộ trình function tiếp theo
 
-1. Build hai image và kiểm tra correctness của `square`, `mean`, `variance`
-   qua demo CPU/GPU trên K3s.
-2. Mở rộng benchmark hiện tại từ SUM sang bảy hàm đã expose.
-3. Thêm `weighted_sum` theo đầy đủ quy tắc function ở trên; cần contract để
-   nhận và serialize plaintext weights.
-4. Thêm `covariance`; dùng cùng contract hai bundle key của `variance`.
-5. Tối ưu multiplicative depth, modulus chain, rescale, relinearization và
-   rotation set sau khi toàn bộ hàm CPU/GPU chạy đúng.
+`encrypt` và `decrypt` thuộc trusted client, không đưa plaintext hoặc secret
+key vào evaluator. Context được chọn cho toàn calculation graph; nhiều
+function trên cùng ciphertext phải dùng cùng context và union evaluation keys.
+Trước mắt client có thể gửi lại cùng serialized artifacts cho mỗi request;
+`context_id`/`ciphertext_id` persistence là bước riêng, không chặn function
+benchmark.
+
+| Function | CPU OpenFHE | GPU FIDESlib | Ưu tiên | Điều phải chốt trước |
+| --- | --- | --- | ---: | --- |
+| `encrypt` / `decrypt` | Client implementation + correctness reference | Demo/native client implementation | 0 | Cùng context với toàn workload; secret key không vào evaluator |
+| `add`, `subtract`, `multiply`, `square`, `sum`, `mean`, `variance` | Đã expose | Đã expose | 0 | Sửa accuracy hiện tại và ghi lại parameter baseline |
+| `weighted_sum` | Implement đầy đủ | Implement đầy đủ | 1 | Plaintext-weight contract, length và packed-slot layout |
+| `rolling_mean` | Implement đầy đủ | Implement đầy đủ | 2 | Trailing hay centered, padding, output length, không wrap slot ngoài ý muốn |
+| `polynomial_score` | Implement đầy đủ | Implement đầy đủ | 3 | Coefficient order, degree limit, input range và evaluation strategy |
+| `matrix_vector_multiply` | Reference + small correctness test | GPU-first implementation/benchmark | 4 | PT hay CT matrix, row/diagonal packing, dimensions và tiling |
+| `linear_layer` | Reference + small correctness test | GPU-first implementation/benchmark | 5 | Dùng contract/layout của matrix-vector; plaintext weights/bias trước |
+| `matrix_multiply` | Chỉ reference nhỏ lúc đầu | GPU-first experimental | 6 | PT×CT trước CT×CT; matrix layout, padding, tiling và output layout |
+
+`matrix_vector_multiply`, `linear_layer`, và `matrix_multiply` không bắt buộc
+chạy CPU ở kích thước lớn. CPU implementation nhỏ dùng làm oracle correctness;
+GPU mới là target performance chính. Không tuyên bố FIDESlib support trước khi
+prototype native C++ gọi được trên T4.
+
+Mỗi function vẫn phải hoàn thành đủ vertical slice:
+
+1. Backend CPU và GPU theo scope trong bảng.
+2. Ciphertext contract `/v1/evaluate` và plaintext `/v1/demo/evaluate` để test
+   nhanh.
+3. Capability metadata, validation, unit/contract test và K3s command.
+4. Deterministic data generator, plaintext expected result và benchmark.
+5. Accuracy report trước, sau đó mới dùng latency để so sánh.
+
+## Dữ liệu và benchmark cần thêm
+
+Không dùng một generator chung giả vờ phù hợp cho mọi workload. Mỗi nhóm cần
+generator nhỏ, deterministic bằng `--seed`, lưu input dưới `data/` của GitOps
+(đã git-ignore) và ghi metadata cạnh result.
+
+| Nhóm | Generator tối thiểu | Tham số benchmark chính | Baseline |
+| --- | --- | --- | --- |
+| `weighted_sum` | values + weights | count, value/weight range, sparsity | Python/NumPy dot product |
+| `rolling_mean` | time series có trend, noise và edge cases | count, window, padding policy | Pandas rolling mean |
+| `polynomial_score` | x trong range kiểm soát + coefficients cố định | count, degree, x range | NumPy polynomial evaluation |
+| Matrix-vector | matrix + vector, dense trước | rows, columns, PT/CT matrix, packing layout | NumPy `matmul` |
+| Linear layer | input batch + weights + bias | batch, in/out features | NumPy `x @ W + b` |
+| Matrix-matrix | hai matrix nhỏ trước | M, K, N, PT×CT/CT×CT, tile size | NumPy `matmul` |
+
+Mọi benchmark ghi ít nhất `max_abs_error`, `max_relative_error`, thời gian
+context/keygen, encrypt, evaluate, decrypt, tổng thời gian, peak memory và GPU
+memory nếu lấy được. Size tăng dần; không bắt đầu bằng dataset lớn trước khi
+case nhỏ pass correctness.
+
+## Thứ tự thực hiện gần nhất
+
+1. Chốt lại parameter baseline chung và làm `variance` pass accuracy CPU/GPU.
+2. Hoàn thiện benchmark bảy function hiện có.
+3. Implement + benchmark `weighted_sum` trên cả CPU và GPU.
+4. Implement `rolling_mean`, sau đó `polynomial_score` trên cả hai backend.
+5. Prototype native GPU `matrix_vector_multiply`; CPU chỉ làm oracle nhỏ.
+6. Xây `linear_layer` trên layout đã kiểm chứng.
+7. Chỉ bắt đầu `matrix_multiply` sau khi matrix-vector ổn định.
+8. Tối ưu depth, modulus chain, scale/rescale, relinearization và rotation set
+   theo từng workload graph, không theo từng function call rời rạc.
 
 `compare_threshold` và `max` chưa được expose: OpenFHE CPU có API scheme
 switch CKKS/FHEW nhưng service hiện chưa có context/key/serialization contract
