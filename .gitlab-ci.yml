@@ -31,6 +31,8 @@ validate-files:
     - test -f requirements.txt
     - test -f api/app.py
     - test -f backends/openfhe_python.py
+    - test -f backends/openfhe_demo.py
+    - test -f backends/openfhe_demo_sum.py
     - test -f common/operations.py
     - test -f openfhe_cpu/runtime.py
     - test -f client/cpu_service_demo.py
