@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import importlib
-from typing import Sequence
+import time
+from typing import Any, Sequence
 
 from common.operations import needs_right_ciphertext, needs_valid_count
 from openfhe_cpu.runtime import OpenFHECPU
@@ -27,16 +28,47 @@ class OpenFHEDemoBackend:
         operation: str,
         values_a: Sequence[float],
         values_b: Sequence[float] | None,
-    ) -> list[float]:
+    ) -> dict[str, Any]:
+        total_started = time.perf_counter()
+        started = time.perf_counter()
         he = OpenFHECPU()
+        context_keygen_seconds = time.perf_counter() - started
+
+        started = time.perf_counter()
         left = he.encrypt(values_a)
+        encrypt_seconds = time.perf_counter() - started
+
         if needs_valid_count(operation):
+            started = time.perf_counter()
             encrypted = getattr(he, operation)(left, len(values_a))
-            return he.decrypt(encrypted, 1)
-        if operation == "square":
-            return he.decrypt(he.square(left), len(values_a))
-        if not needs_right_ciphertext(operation) or values_b is None:
-            raise ValueError(f"invalid demo inputs for {operation}")
-        right = he.encrypt(values_b)
-        encrypted = getattr(he, operation)(left, right)
-        return he.decrypt(encrypted, len(values_a))
+            calculation_seconds = time.perf_counter() - started
+            output_length = 1
+        elif operation == "square":
+            started = time.perf_counter()
+            encrypted = he.square(left)
+            calculation_seconds = time.perf_counter() - started
+            output_length = len(values_a)
+        else:
+            if not needs_right_ciphertext(operation) or values_b is None:
+                raise ValueError(f"invalid demo inputs for {operation}")
+            started = time.perf_counter()
+            right = he.encrypt(values_b)
+            encrypt_seconds += time.perf_counter() - started
+            started = time.perf_counter()
+            encrypted = getattr(he, operation)(left, right)
+            calculation_seconds = time.perf_counter() - started
+            output_length = len(values_a)
+
+        started = time.perf_counter()
+        values = he.decrypt(encrypted, output_length)
+        decrypt_seconds = time.perf_counter() - started
+        return {
+            "values": values,
+            "timings": {
+                "context_keygen_seconds": context_keygen_seconds,
+                "encrypt_seconds": encrypt_seconds,
+                "calculation_seconds": calculation_seconds,
+                "decrypt_seconds": decrypt_seconds,
+                "total_seconds": time.perf_counter() - total_started,
+            },
+        }

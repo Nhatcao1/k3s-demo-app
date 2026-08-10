@@ -78,7 +78,7 @@ class DemoEvaluator(Protocol):
         operation: str,
         values_a: list[float],
         values_b: list[float] | None,
-    ) -> list[float]: ...
+    ) -> dict[str, Any]: ...
 
 
 def _decode_artifact(payload: dict[str, Any], name: str) -> bytes:
@@ -308,13 +308,20 @@ def evaluate_demo_request(
         raise RequestError(
             "request_id must be a non-empty string of at most 128 characters"
         )
-    started = time.perf_counter()
-    values = evaluator.evaluate(operation, values_a, values_b)
+    result = evaluator.evaluate(operation, values_a, values_b)
+    values = result.get("values")
+    timings = result.get("timings")
+    if not isinstance(values, list) or not isinstance(timings, dict):
+        raise RuntimeError("CPU demo backend returned an invalid result")
+    calculation_seconds = timings.get("calculation_seconds")
+    if not isinstance(calculation_seconds, (int, float)):
+        raise RuntimeError("CPU demo backend returned invalid timing data")
     response: dict[str, Any] = {
         "operation": operation,
         "backend": evaluator.backend_name,
         "values": values,
-        "evaluation_seconds": time.perf_counter() - started,
+        "evaluation_seconds": float(calculation_seconds),
+        "timings": timings,
         "demo_trust_model": "plaintext enters the CPU service",
     }
     if request_id is not None:
@@ -379,6 +386,13 @@ def make_handler(
                         "native_demo_endpoint": "/v1/demo/evaluate",
                         "native_demo_operations": list(OPERATIONS),
                         "demo_sum_input": "plaintext numeric array",
+                        "demo_timing_fields": [
+                            "context_keygen_seconds",
+                            "encrypt_seconds",
+                            "calculation_seconds",
+                            "decrypt_seconds",
+                            "total_seconds",
+                        ],
                     },
                 )
             else:

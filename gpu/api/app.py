@@ -102,7 +102,7 @@ class DemoEvaluator(Protocol):
         operation: str,
         values_a: list[float],
         values_b: list[float] | None,
-    ) -> list[float]: ...
+    ) -> dict[str, Any]: ...
 
     def sum_many(self, values: list[float]) -> dict[str, Any]: ...
 
@@ -305,7 +305,7 @@ class NativeDemoBackend:
         operation: str,
         values_a: list[float],
         values_b: list[float] | None,
-    ) -> list[float]:
+    ) -> dict[str, Any]:
         command = [
             str(self.worker),
             "--operation",
@@ -319,12 +319,14 @@ class NativeDemoBackend:
             )
         payload = self._run(command)
         values = payload["values"]
+        timings = payload.get("timings")
         if not isinstance(values, list) or not all(
             isinstance(value, (int, float)) and not isinstance(value, bool)
             for value in values
-        ):
+        ) or not isinstance(timings, dict):
             raise RuntimeError("native FIDESlib demo returned invalid values")
-        return [float(value) for value in values]
+        payload["values"] = [float(value) for value in values]
+        return payload
 
     def sum_many(self, values: list[float]) -> dict[str, Any]:
         """Pass large input to the FIDESlib C++ executable via a private file."""
@@ -512,13 +514,20 @@ def evaluate_demo_request(
     ):
         raise RequestError("request_id must be a non-empty string of at most 128 characters")
 
-    started = time.perf_counter()
-    values = evaluator.evaluate(operation, values_a, values_b)
+    result = evaluator.evaluate(operation, values_a, values_b)
+    values = result.get("values")
+    timings = result.get("timings")
+    if not isinstance(values, list) or not isinstance(timings, dict):
+        raise RuntimeError("GPU demo backend returned an invalid result")
+    calculation_seconds = timings.get("calculation_seconds")
+    if not isinstance(calculation_seconds, (int, float)):
+        raise RuntimeError("GPU demo backend returned invalid timing data")
     response: dict[str, Any] = {
         "operation": operation,
         "backend": evaluator.backend_name,
         "values": values,
-        "evaluation_seconds": time.perf_counter() - started,
+        "evaluation_seconds": float(calculation_seconds),
+        "timings": timings,
         "demo_trust_model": "plaintext enters the GPU service",
     }
     if request_id is not None:
@@ -604,6 +613,13 @@ def make_handler(
                     "native_demo_endpoint": "/v1/demo/evaluate",
                     "native_demo_input": "plaintext numeric arrays",
                     "native_demo_operations": list(DEMO_OPERATIONS),
+                    "demo_timing_fields": [
+                        "context_keygen_seconds",
+                        "encrypt_seconds",
+                        "calculation_seconds",
+                        "decrypt_seconds",
+                        "total_seconds",
+                    ],
                     "demo_sum_endpoint": "/v1/demo/sum",
                     "demo_sum_max_values": MAX_DEMO_SUM_VALUES,
                 })

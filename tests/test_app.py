@@ -66,19 +66,32 @@ class FakeDemoEvaluator:
         operation: str,
         values_a: list[float],
         values_b: list[float] | None,
-    ) -> list[float]:
+    ) -> dict[str, object]:
         self.received = (operation, values_a, values_b)
         if operation == "sum":
-            return [sum(values_a)]
-        if operation == "mean":
-            return [sum(values_a) / len(values_a)]
-        if operation == "variance":
+            values = [sum(values_a)]
+        elif operation == "mean":
+            values = [sum(values_a) / len(values_a)]
+        elif operation == "variance":
             mean = sum(values_a) / len(values_a)
-            return [sum((value - mean) ** 2 for value in values_a) / len(values_a)]
-        if operation == "square":
-            return [value * value for value in values_a]
-        assert values_b is not None
-        return [left + right for left, right in zip(values_a, values_b)]
+            values = [
+                sum((value - mean) ** 2 for value in values_a) / len(values_a)
+            ]
+        elif operation == "square":
+            values = [value * value for value in values_a]
+        else:
+            assert values_b is not None
+            values = [left + right for left, right in zip(values_a, values_b)]
+        return {
+            "values": values,
+            "timings": {
+                "context_keygen_seconds": 0.04,
+                "encrypt_seconds": 0.03,
+                "calculation_seconds": 0.02,
+                "decrypt_seconds": 0.01,
+                "total_seconds": 0.1,
+            },
+        }
 
 
 def encoded(value: bytes) -> str:
@@ -187,6 +200,8 @@ class EvaluateRequestTests(unittest.TestCase):
             FakeDemoEvaluator(),
         )
         self.assertEqual(result["values"], [1.25])
+        self.assertEqual(result["evaluation_seconds"], 0.02)
+        self.assertEqual(result["timings"]["encrypt_seconds"], 0.03)
 
     def test_rejects_secret_key(self) -> None:
         payload = primitive_payload()
@@ -249,6 +264,7 @@ class HttpApiTests(unittest.TestCase):
         )
         self.assertEqual(payload["backend"], "test-backend")
         self.assertFalse(payload["secret_key_required_by_api"])
+        self.assertIn("encrypt_seconds", payload["demo_timing_fields"])
 
     def test_evaluate_endpoint(self) -> None:
         result = self.post(primitive_payload("subtract"))

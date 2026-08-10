@@ -99,7 +99,13 @@ std::vector<double> read_binary_values(const std::string& filename) {
 }
 
 void print_simple_result(
-    const std::string& operation, const std::vector<double>& values) {
+    const std::string& operation,
+    const std::vector<double>& values,
+    double context_keygen_seconds,
+    double encrypt_seconds,
+    double calculation_seconds,
+    double decrypt_seconds,
+    double total_seconds) {
     std::cout << "{\"operation\":\"" << operation << "\",\"values\":[";
     std::cout << std::setprecision(15);
     for (std::size_t index = 0; index < values.size(); ++index) {
@@ -108,7 +114,12 @@ void print_simple_result(
         }
         std::cout << values[index];
     }
-    std::cout << "]}\n";
+    std::cout << "],\"timings\":{"
+              << "\"context_keygen_seconds\":" << context_keygen_seconds << ','
+              << "\"encrypt_seconds\":" << encrypt_seconds << ','
+              << "\"calculation_seconds\":" << calculation_seconds << ','
+              << "\"decrypt_seconds\":" << decrypt_seconds << ','
+              << "\"total_seconds\":" << total_seconds << "}}\n";
 }
 
 void print_sum_result(
@@ -220,8 +231,10 @@ void run_small_operation(
     std::vector<double> left,
     std::vector<double> right,
     std::size_t input_length) {
+    const auto total_started = Clock::now();
     left.resize(kBatchSize, 0.0);
     right.resize(kBatchSize, 0.0);
+    const auto setup_started = Clock::now();
     auto context = create_context();
     auto keys = context->KeyGen();
     if (operation == "multiply" || operation == "square" ||
@@ -237,9 +250,21 @@ void run_small_operation(
             std::vector<int32_t>(rotations.begin(), rotations.end()));
     }
     context->LoadContext(keys.publicKey);
+    const double context_keygen_seconds = elapsed(setup_started);
     he_gpu::FidesBackend backend(context);
+
+    const auto encrypt_started = Clock::now();
     auto left_plaintext = context->MakeCKKSPackedPlaintext(left);
     auto left_ciphertext = context->Encrypt(keys.publicKey, left_plaintext);
+    Ciphertext right_ciphertext;
+    if (operation == "add" || operation == "subtract" ||
+        operation == "multiply") {
+        auto right_plaintext = context->MakeCKKSPackedPlaintext(right);
+        right_ciphertext = context->Encrypt(keys.publicKey, right_plaintext);
+    }
+    const double encrypt_seconds = elapsed(encrypt_started);
+
+    const auto calculation_started = Clock::now();
     Ciphertext result;
     if (operation == "sum") {
         result = backend.sum(left_ciphertext, static_cast<int>(input_length));
@@ -250,12 +275,13 @@ void run_small_operation(
     } else if (operation == "square") {
         result = backend.square(left_ciphertext);
     } else {
-        auto right_plaintext = context->MakeCKKSPackedPlaintext(right);
-        auto right_ciphertext = context->Encrypt(keys.publicKey, right_plaintext);
         if (operation == "add") result = backend.add(left_ciphertext, right_ciphertext);
         else if (operation == "subtract") result = backend.subtract(left_ciphertext, right_ciphertext);
         else result = backend.multiply(left_ciphertext, right_ciphertext);
     }
+    const double calculation_seconds = elapsed(calculation_started);
+
+    const auto decrypt_started = Clock::now();
     fideslib::Plaintext decrypted;
     const auto decrypted_result = context->Decrypt(keys.secretKey, result, &decrypted);
     if (!decrypted_result.isValid) {
@@ -267,7 +293,10 @@ void run_small_operation(
     decrypted->SetLength(result_length);
     auto result_values = decrypted->GetRealPackedValue();
     result_values.resize(result_length);
-    print_simple_result(operation, result_values);
+    const double decrypt_seconds = elapsed(decrypt_started);
+    print_simple_result(
+        operation, result_values, context_keygen_seconds, encrypt_seconds,
+        calculation_seconds, decrypt_seconds, elapsed(total_started));
 }
 
 }  // namespace

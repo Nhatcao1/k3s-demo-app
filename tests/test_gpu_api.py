@@ -65,23 +65,37 @@ class FakeNativeDemoEvaluator:
         operation: str,
         values_a: list[float],
         values_b: list[float] | None,
-    ) -> list[float]:
+    ) -> dict[str, object]:
         self.received = (operation, values_a, values_b)
         if operation == "sum":
-            return [sum(values_a)]
-        if operation == "mean":
-            return [sum(values_a) / len(values_a)]
-        if operation == "variance":
+            values = [sum(values_a)]
+        elif operation == "mean":
+            values = [sum(values_a) / len(values_a)]
+        elif operation == "variance":
             mean = sum(values_a) / len(values_a)
-            return [sum((value - mean) ** 2 for value in values_a) / len(values_a)]
-        if operation == "square":
-            return [value * value for value in values_a]
-        assert values_b is not None
-        if operation == "add":
-            return [left + right for left, right in zip(values_a, values_b)]
-        if operation == "subtract":
-            return [left - right for left, right in zip(values_a, values_b)]
-        return [left * right for left, right in zip(values_a, values_b)]
+            values = [
+                sum((value - mean) ** 2 for value in values_a) / len(values_a)
+            ]
+        elif operation == "square":
+            values = [value * value for value in values_a]
+        else:
+            assert values_b is not None
+            if operation == "add":
+                values = [left + right for left, right in zip(values_a, values_b)]
+            elif operation == "subtract":
+                values = [left - right for left, right in zip(values_a, values_b)]
+            else:
+                values = [left * right for left, right in zip(values_a, values_b)]
+        return {
+            "values": values,
+            "timings": {
+                "context_keygen_seconds": 0.4,
+                "encrypt_seconds": 0.3,
+                "calculation_seconds": 0.2,
+                "decrypt_seconds": 0.1,
+                "total_seconds": 1.0,
+            },
+        }
 
     def sum_many(self, values: list[float]) -> dict[str, object]:
         self.received_many = values
@@ -255,19 +269,23 @@ class GpuContractTests(unittest.TestCase):
             ("add", [12.0, 7.0, 8.0, 9.0], [1.0, 2.0, 3.0, 4.0]),
         )
         self.assertEqual(response["values"], [13.0, 9.0, 11.0, 13.0])
+        self.assertEqual(response["evaluation_seconds"], 0.2)
+        self.assertEqual(response["timings"]["encrypt_seconds"], 0.3)
 
     def test_native_demo_adapter_reads_cpp_json_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             worker = Path(directory) / "fake-demo-worker"
             worker.write_text(
                 "#!/bin/sh\nprintf '%s\\n' 'GPU 0: Tesla T4'\nprintf '%s\\n' "
-                "'{\"operation\":\"sum\",\"values\":[36.0]}'\n",
+                "'{\"operation\":\"sum\",\"values\":[36.0],"
+                "\"timings\":{\"calculation_seconds\":0.2}}'\n",
                 encoding="utf-8",
             )
             os.chmod(worker, 0o700)
             backend = NativeDemoBackend(str(worker))
             result = backend.evaluate("sum", [12.0, 7.0, 8.0, 9.0], None)
-        self.assertEqual(result, [36.0])
+        self.assertEqual(result["values"], [36.0])
+        self.assertEqual(result["timings"]["calculation_seconds"], 0.2)
 
     def test_large_sum_request_uses_matching_contract(self) -> None:
         evaluator = FakeNativeDemoEvaluator()
@@ -322,6 +340,7 @@ class GpuHttpTests(unittest.TestCase):
         )
         self.assertTrue(payload["public_key_required_by_api"])
         self.assertFalse(payload["secret_key_required_by_api"])
+        self.assertIn("calculation_seconds", payload["demo_timing_fields"])
 
     def test_http_rejects_secret_key(self) -> None:
         payload = primitive_payload()
