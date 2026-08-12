@@ -12,6 +12,7 @@ import time
 from typing import Any, Protocol
 
 from backends.openfhe_python import OpenFHEBackendError, OpenFHEPythonBackend
+from backends.openfhe_bgv_demo import OpenFHEBGVDemoBackend
 from backends.openfhe_demo import OpenFHEDemoBackend
 from backends.openfhe_demo_sum import OpenFHEDemoSumBackend
 from common.operations import (
@@ -78,6 +79,17 @@ class DemoEvaluator(Protocol):
         operation: str,
         values_a: list[float],
         values_b: list[float] | None,
+    ) -> dict[str, Any]: ...
+
+
+class BGVDemoEvaluator(Protocol):
+    backend_name: str
+
+    @property
+    def ready(self) -> bool: ...
+
+    def evaluate_multiply(
+        self, values_a: list[int], values_b: list[int]
     ) -> dict[str, Any]: ...
 
 
@@ -329,10 +341,69 @@ def evaluate_demo_request(
     return response
 
 
+def evaluate_bgv_demo_request(
+    payload: Any, evaluator: BGVDemoEvaluator
+) -> dict[str, Any]:
+    """Run one exact-integer BGV multiplication inside the trusted CPU demo."""
+    if not isinstance(payload, dict):
+        raise RequestError("request body must be a JSON object")
+    unexpected = sorted(
+        set(payload) - {"operation", "values_a", "values_b", "request_id"}
+    )
+    if unexpected:
+        raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
+    if payload.get("operation") != "multiply":
+        raise RequestError("BGV demo currently supports only multiply")
+
+    def integer_values(name: str) -> list[int]:
+        values = payload.get(name)
+        if not isinstance(values, list) or not 1 <= len(values) <= MAX_DEMO_VALUES:
+            raise RequestError(
+                f"{name} must contain between 1 and {MAX_DEMO_VALUES} integers"
+            )
+        if any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in values
+        ):
+            raise RequestError(f"{name} must contain only integers")
+        return list(values)
+
+    values_a = integer_values("values_a")
+    values_b = integer_values("values_b")
+    if len(values_a) != len(values_b):
+        raise RequestError("values_a and values_b must have equal length")
+    result = evaluator.evaluate_multiply(values_a, values_b)
+    values = result.get("values")
+    timings = result.get("timings")
+    if not isinstance(values, list) or not isinstance(timings, dict):
+        raise RuntimeError("CPU BGV demo backend returned an invalid result")
+    response: dict[str, Any] = {
+        **result,
+        "operation": "multiply",
+        "scheme": "BGV",
+        "backend": evaluator.backend_name,
+        "evaluation_seconds": float(timings["calculation_seconds"]),
+        "demo_trust_model": "plaintext integers enter the CPU service",
+    }
+    request_id = payload.get("request_id")
+    if request_id is not None:
+        if (
+            not isinstance(request_id, str)
+            or not request_id
+            or len(request_id) > 128
+        ):
+            raise RequestError(
+                "request_id must be a non-empty string of at most 128 characters"
+            )
+        response["request_id"] = request_id
+    return response
+
+
 def make_handler(
     evaluator: CiphertextEvaluator,
     demo_evaluator: DemoEvaluator,
     demo_sum_evaluator: DemoSumEvaluator,
+    bgv_demo_evaluator: BGVDemoEvaluator,
 ) -> type[BaseHTTPRequestHandler]:
     """Create a request handler bound to one evaluator."""
 
@@ -356,8 +427,10 @@ def make_handler(
                 self._send_json(200, {"status": "ok"})
             elif self.path == "/readyz":
                 ready = (
-                    evaluator.ready and demo_evaluator.ready
+                    evaluator.ready
+                    and demo_evaluator.ready
                     and demo_sum_evaluator.ready
+                    and bgv_demo_evaluator.ready
                 )
                 status = 200 if ready else 503
                 self._send_json(
@@ -370,6 +443,7 @@ def make_handler(
                     {
                         "operations": list(OPERATIONS),
                         "scheme": "CKKS",
+                        "demo_schemes": ["CKKS", "BGV"],
                         "backend": evaluator.backend_name,
                         "serialization": evaluator.serialization,
                         "secret_key_required_by_api": False,
@@ -384,6 +458,8 @@ def make_handler(
                         },
                         "demo_sum_endpoint": "/v1/demo/sum",
                         "native_demo_endpoint": "/v1/demo/evaluate",
+                        "bgv_demo_endpoint": "/v1/demo/bgv/evaluate",
+                        "bgv_demo_operations": ["multiply"],
                         "native_demo_operations": list(OPERATIONS),
                         "demo_sum_input": "plaintext numeric array",
                         "demo_timing_fields": [
@@ -400,7 +476,10 @@ def make_handler(
 
         def do_POST(self) -> None:  # noqa: N802
             if self.path not in (
-                "/v1/evaluate", "/v1/demo/evaluate", "/v1/demo/sum"
+                "/v1/evaluate",
+                "/v1/demo/evaluate",
+                "/v1/demo/bgv/evaluate",
+                "/v1/demo/sum",
             ):
                 self._send_json(404, {"error": "not_found"})
                 return
@@ -420,6 +499,8 @@ def make_handler(
                 payload = json.loads(self.rfile.read(content_length))
                 if self.path == "/v1/demo/sum":
                     response = evaluate_demo_sum_request(payload, demo_sum_evaluator)
+                elif self.path == "/v1/demo/bgv/evaluate":
+                    response = evaluate_bgv_demo_request(payload, bgv_demo_evaluator)
                 elif self.path == "/v1/demo/evaluate":
                     response = evaluate_demo_request(payload, demo_evaluator)
                 else:
@@ -442,12 +523,15 @@ def create_server(
     evaluator: CiphertextEvaluator | None = None,
     demo_evaluator: DemoEvaluator | None = None,
     demo_sum_evaluator: DemoSumEvaluator | None = None,
+    bgv_demo_evaluator: BGVDemoEvaluator | None = None,
 ) -> HTTPServer:
     selected = evaluator or OpenFHEPythonBackend()
     selected_demo = demo_evaluator or OpenFHEDemoBackend()
     selected_demo_sum = demo_sum_evaluator or OpenFHEDemoSumBackend()
+    selected_bgv_demo = bgv_demo_evaluator or OpenFHEBGVDemoBackend()
     return HTTPServer(
-        (host, port), make_handler(selected, selected_demo, selected_demo_sum)
+        (host, port),
+        make_handler(selected, selected_demo, selected_demo_sum, selected_bgv_demo),
     )
 
 

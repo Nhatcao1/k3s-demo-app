@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 from api.app import (
     RequestError,
     create_server,
+    evaluate_bgv_demo_request,
     evaluate_demo_request,
     evaluate_demo_sum_request,
     evaluate_request,
@@ -84,6 +85,27 @@ class FakeDemoEvaluator:
             values = [left + right for left, right in zip(values_a, values_b)]
         return {
             "values": values,
+            "timings": {
+                "context_keygen_seconds": 0.04,
+                "encrypt_seconds": 0.03,
+                "calculation_seconds": 0.02,
+                "decrypt_seconds": 0.01,
+                "total_seconds": 0.1,
+            },
+        }
+
+
+class FakeBGVDemoEvaluator:
+    backend_name = "cpu-openfhe-bgv-test"
+    ready = True
+
+    def evaluate_multiply(
+        self, values_a: list[int], values_b: list[int]
+    ) -> dict[str, object]:
+        self.received = (values_a, values_b)
+        return {
+            "values": [left * right for left, right in zip(values_a, values_b)],
+            "plaintext_modulus": 4_000_350_209,
             "timings": {
                 "context_keygen_seconds": 0.04,
                 "encrypt_seconds": 0.03,
@@ -218,6 +240,30 @@ class EvaluateRequestTests(unittest.TestCase):
         self.assertEqual(result["values"], [36.0])
         self.assertEqual(result["request_id"], "cpu-sum")
 
+    def test_bgv_demo_requires_integer_multiply(self) -> None:
+        result = evaluate_bgv_demo_request(
+            {
+                "operation": "multiply",
+                "values_a": [1, 2],
+                "values_b": [1000000000, 1000000000],
+            },
+            FakeBGVDemoEvaluator(),
+        )
+        self.assertEqual(result["scheme"], "BGV")
+        self.assertEqual(result["values"], [1000000000, 2000000000])
+        self.assertEqual(result["evaluation_seconds"], 0.02)
+
+    def test_bgv_demo_rejects_decimal_input(self) -> None:
+        with self.assertRaisesRegex(RequestError, "only integers"):
+            evaluate_bgv_demo_request(
+                {
+                    "operation": "multiply",
+                    "values_a": [1.5],
+                    "values_b": [2],
+                },
+                FakeBGVDemoEvaluator(),
+            )
+
 
 class HttpApiTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -227,6 +273,7 @@ class HttpApiTests(unittest.TestCase):
             evaluator=FakeEvaluator(),
             demo_evaluator=FakeDemoEvaluator(),
             demo_sum_evaluator=FakeDemoSumEvaluator(),
+            bgv_demo_evaluator=FakeBGVDemoEvaluator(),
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -265,6 +312,8 @@ class HttpApiTests(unittest.TestCase):
         self.assertEqual(payload["backend"], "test-backend")
         self.assertFalse(payload["secret_key_required_by_api"])
         self.assertIn("encrypt_seconds", payload["demo_timing_fields"])
+        self.assertEqual(payload["demo_schemes"], ["CKKS", "BGV"])
+        self.assertEqual(payload["bgv_demo_endpoint"], "/v1/demo/bgv/evaluate")
 
     def test_evaluate_endpoint(self) -> None:
         result = self.post(primitive_payload("subtract"))
@@ -275,6 +324,18 @@ class HttpApiTests(unittest.TestCase):
         result = self.post({"values": [12, 7, 8, 9]}, "/v1/demo/sum")
         self.assertEqual(result["backend"], "cpu-openfhe-demo-test")
         self.assertEqual(result["values"], [36.0])
+
+    def test_bgv_demo_endpoint(self) -> None:
+        result = self.post(
+            {
+                "operation": "multiply",
+                "values_a": [1, 2],
+                "values_b": [10, 10],
+            },
+            "/v1/demo/bgv/evaluate",
+        )
+        self.assertEqual(result["scheme"], "BGV")
+        self.assertEqual(result["values"], [10, 20])
 
     def test_rejects_secret_key_field(self) -> None:
         payload = primitive_payload()

@@ -27,6 +27,12 @@ For CKKS, do not treat a plaintext modulus `p` like the BFV/BGV setting. CKKS
 mainly needs its scaling and modulus chain tuned for the calculation depth and
 required precision.
 
+The CPU-only BGV multiplication-range demo is deliberately separate. Its
+plaintext modulus is `4000350209`, multiplicative depth is `1`, ring dimension
+is `16384`, and batch size is `8192`. The centered signed range covers the
+default products through `2 × 1000000000`; crossing the modular range is a
+benchmark limit, not a CKKS precision failure.
+
 ## Optimization checkpoint
 
 Keep the defaults while establishing correctness and baseline measurements.
