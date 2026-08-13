@@ -115,6 +115,20 @@ class FakeBGVDemoEvaluator:
             },
         }
 
+    def evaluate_sum(self, values: list[int]) -> dict[str, object]:
+        self.received = values
+        return {
+            "values": [sum(values)],
+            "plaintext_modulus": 200_000_045_057,
+            "timings": {
+                "context_keygen_seconds": 0.04,
+                "encrypt_seconds": 0.03,
+                "calculation_seconds": 0.02,
+                "decrypt_seconds": 0.01,
+                "total_seconds": 0.1,
+            },
+        }
+
 
 def encoded(value: bytes) -> str:
     return base64.b64encode(value).decode("ascii")
@@ -264,6 +278,17 @@ class EvaluateRequestTests(unittest.TestCase):
                 FakeBGVDemoEvaluator(),
             )
 
+    def test_bgv_demo_sums_integers_exactly(self) -> None:
+        result = evaluate_bgv_demo_request(
+            {
+                "operation": "sum",
+                "values_a": [25_000_000_000] * 4,
+            },
+            FakeBGVDemoEvaluator(),
+        )
+        self.assertEqual(result["values"], [100_000_000_000])
+        self.assertEqual(result["operation"], "sum")
+
 
 class HttpApiTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -314,6 +339,7 @@ class HttpApiTests(unittest.TestCase):
         self.assertIn("encrypt_seconds", payload["demo_timing_fields"])
         self.assertEqual(payload["demo_schemes"], ["CKKS", "BGV"])
         self.assertEqual(payload["bgv_demo_endpoint"], "/v1/demo/bgv/evaluate")
+        self.assertEqual(payload["bgv_demo_operations"], ["multiply", "sum"])
 
     def test_evaluate_endpoint(self) -> None:
         result = self.post(primitive_payload("subtract"))
@@ -336,6 +362,16 @@ class HttpApiTests(unittest.TestCase):
         )
         self.assertEqual(result["scheme"], "BGV")
         self.assertEqual(result["values"], [10, 20])
+
+    def test_bgv_demo_sum_endpoint(self) -> None:
+        result = self.post(
+            {
+                "operation": "sum",
+                "values_a": [25_000_000_000] * 4,
+            },
+            "/v1/demo/bgv/evaluate",
+        )
+        self.assertEqual(result["values"], [100_000_000_000])
 
     def test_rejects_secret_key_field(self) -> None:
         payload = primitive_payload()

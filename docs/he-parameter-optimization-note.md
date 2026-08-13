@@ -28,10 +28,11 @@ mainly needs its scaling and modulus chain tuned for the calculation depth and
 required precision.
 
 The CPU-only BGV multiplication-range demo is deliberately separate. Its
-plaintext modulus is `4000350209`, multiplicative depth is `1`, ring dimension
-is `16384`, and batch size is `8192`. The centered signed range covers the
-default products through `2 × 1000000000`; crossing the modular range is a
-benchmark limit, not a CKKS precision failure.
+plaintext modulus is `200000045057`, multiplicative depth is `1`, ring
+dimension is `16384`, and batch size is `8192`. The centered signed range is
+`±100000022528`, covering SUM targets through 100 billion and the default
+multiplication products. Crossing that range is modular wraparound, not a CKKS
+precision failure.
 
 ## Optimization checkpoint
 

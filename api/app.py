@@ -92,6 +92,8 @@ class BGVDemoEvaluator(Protocol):
         self, values_a: list[int], values_b: list[int]
     ) -> dict[str, Any]: ...
 
+    def evaluate_sum(self, values: list[int]) -> dict[str, Any]: ...
+
 
 def _decode_artifact(payload: dict[str, Any], name: str) -> bytes:
     value = payload.get(name)
@@ -344,7 +346,7 @@ def evaluate_demo_request(
 def evaluate_bgv_demo_request(
     payload: Any, evaluator: BGVDemoEvaluator
 ) -> dict[str, Any]:
-    """Run one exact-integer BGV multiplication inside the trusted CPU demo."""
+    """Run one exact-integer BGV operation inside the trusted CPU demo."""
     if not isinstance(payload, dict):
         raise RequestError("request body must be a JSON object")
     unexpected = sorted(
@@ -352,8 +354,9 @@ def evaluate_bgv_demo_request(
     )
     if unexpected:
         raise RequestError(f"unexpected fields: {', '.join(unexpected)}")
-    if payload.get("operation") != "multiply":
-        raise RequestError("BGV demo currently supports only multiply")
+    operation = payload.get("operation")
+    if operation not in ("multiply", "sum"):
+        raise RequestError("BGV demo supports multiply and sum")
 
     def integer_values(name: str) -> list[int]:
         values = payload.get(name)
@@ -369,17 +372,22 @@ def evaluate_bgv_demo_request(
         return list(values)
 
     values_a = integer_values("values_a")
-    values_b = integer_values("values_b")
-    if len(values_a) != len(values_b):
-        raise RequestError("values_a and values_b must have equal length")
-    result = evaluator.evaluate_multiply(values_a, values_b)
+    if operation == "multiply":
+        values_b = integer_values("values_b")
+        if len(values_a) != len(values_b):
+            raise RequestError("values_a and values_b must have equal length")
+        result = evaluator.evaluate_multiply(values_a, values_b)
+    else:
+        if "values_b" in payload:
+            raise RequestError("BGV sum does not accept values_b")
+        result = evaluator.evaluate_sum(values_a)
     values = result.get("values")
     timings = result.get("timings")
     if not isinstance(values, list) or not isinstance(timings, dict):
         raise RuntimeError("CPU BGV demo backend returned an invalid result")
     response: dict[str, Any] = {
         **result,
-        "operation": "multiply",
+        "operation": operation,
         "scheme": "BGV",
         "backend": evaluator.backend_name,
         "evaluation_seconds": float(timings["calculation_seconds"]),
@@ -459,7 +467,7 @@ def make_handler(
                         "demo_sum_endpoint": "/v1/demo/sum",
                         "native_demo_endpoint": "/v1/demo/evaluate",
                         "bgv_demo_endpoint": "/v1/demo/bgv/evaluate",
-                        "bgv_demo_operations": ["multiply"],
+                        "bgv_demo_operations": ["multiply", "sum"],
                         "native_demo_operations": list(OPERATIONS),
                         "demo_sum_input": "plaintext numeric array",
                         "demo_timing_fields": [
