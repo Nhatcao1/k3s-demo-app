@@ -2,12 +2,17 @@ include:
   - template: Security/SAST.gitlab-ci.yml
   - template: Security/Secret-Detection.gitlab-ci.yml
 
+# Run every ordinary CI job on the non-GPU self-hosted runner. GPU runtime
+# verification happens after deployment on the K3s GPU node.
+default:
+  tags:
+    - k3s
+
 stages:
   - validate
   - test
   - secret-detection
   - package
-  - native-test
   - publish
   - build
 
@@ -82,7 +87,7 @@ validate-files:
     - grep -Fq 'openfhe==1.5.1.0.24.4' requirements.txt
     - grep -Fq 'numpy>=2.0,<3' requirements.txt
     - grep -Fq 'pandas>=2.2,<3' requirements.txt
-    - test "$(wc -l < requirements.txt)" -eq 3
+    - test "$(grep -Ev '^[[:space:]]*(#|$)' requirements.txt | wc -l | tr -d ' ')" -eq 3
     - echo "Required CPU OpenFHE evaluator files exist."
 
 test-he:
@@ -97,7 +102,6 @@ test-sdk-openfhe:
     name: "$OPENFHE_CPU_LATEST"
     entrypoint: [""]
   rules:
-    - if: '$CI_COMMIT_TAG =~ /^fides-v[0-9]+\.[0-9]+\.[0-9]+$/'
     - changes:
         - .gitlab-ci.yml
         - pyproject.toml
@@ -125,7 +129,7 @@ build-sdk-wheel:
     - python -m pip install --disable-pip-version-check 'build==1.3.0'
   script:
     - python -m build --wheel --outdir "$SDK_WHEEL_DIR"
-    - cd "$SDK_WHEEL_DIR" && sha256sum he_sdk-*.whl > SHA256SUMS && cd ..
+    - cd "$SDK_WHEEL_DIR" && sha256sum he_looming_sdk-*.whl > SHA256SUMS && cd ..
     - python -m pip install --no-deps "$SDK_WHEEL_DIR"/*.whl
     - python -I -c 'from he_sdk import CKKSConfig, HESession; print(CKKSConfig.profile("ckks-balanced-v1").fingerprint)'
   artifacts:
@@ -172,33 +176,6 @@ build-fides-sdk-wheel:
       - fides-dist/*.whl
     expire_in: 60 days
 
-test-fides-sdk-native:
-  stage: native-test
-  image: nvidia/cuda:12.9.1-runtime-ubuntu24.04
-  tags:
-    - gpu
-  dependencies:
-    - build-sdk-wheel
-    - build-fides-sdk-wheel
-    - test-sdk-openfhe
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^fides-v[0-9]+\.[0-9]+\.[0-9]+$/'
-  before_script:
-    - apt-get update
-    - apt-get install -y --no-install-recommends libomp-dev python3 python3-venv
-    - python3 -m venv /tmp/he-sdk-fides-test
-    - /tmp/he-sdk-fides-test/bin/python -m pip install --upgrade pip
-    - /tmp/he-sdk-fides-test/bin/python -m pip install --no-deps dist/he_sdk-*.whl fides-dist/he_sdk_fides-*.whl
-  script:
-    - HE_SDK_BACKEND=fides /tmp/he-sdk-fides-test/bin/python -m he_sdk.smoke > fides-smoke.txt
-    - cat fides-smoke.txt
-    - /tmp/he-sdk-fides-test/bin/python scripts/sdk/compare_smoke_results.py openfhe-smoke.txt fides-smoke.txt
-    - /tmp/he-sdk-fides-test/bin/python -c 'from he_sdk.smoke import run; assert run("fides")["status"] == "PASS"'
-  artifacts:
-    paths:
-      - fides-smoke.txt
-    expire_in: 30 days
-
 publish-sdk-gitlab:
   stage: publish
   image: python:3.12-alpine
@@ -219,6 +196,30 @@ publish-sdk-gitlab:
         --non-interactive \
         --repository-url "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/pypi" \
         dist/*.whl
+
+publish-sdk-pypi:
+  stage: publish
+  image: python:3.12-alpine
+  dependencies:
+    - build-sdk-wheel
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+  environment:
+    name: pypi
+    url: https://pypi.org/project/he-looming-sdk/
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+  before_script:
+    - python -m pip install --disable-pip-version-check 'twine>=6,<7'
+  script:
+    - |
+      PACKAGE_VERSION="$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+      test "$CI_COMMIT_TAG" = "v$PACKAGE_VERSION"
+    - python -m twine check dist/*.whl
+    # Twine exchanges this job's short-lived PYPI_ID_TOKEN for a temporary
+    # upload token. No long-lived PyPI token is stored in GitLab.
+    - python -m twine upload --non-interactive dist/*.whl
 
 publish-fides-sdk-gitlab:
   stage: publish
@@ -314,6 +315,9 @@ build-fides-evaluator-gpu:
       printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
         "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
   script:
+    # CUDA code is compiled by the CUDA toolchain in the image. This runner
+    # does not execute the resulting binaries; runtime validation is performed
+    # by the GitOps deployment on a K3s node with an NVIDIA GPU.
     - echo "Building $FIDES_GPU_IMAGE and $FIDES_GPU_LATEST for CUDA architecture $FIDESLIB_ARCH"
     - |
       buildctl-daemonless.sh build \
@@ -322,4 +326,7 @@ build-fides-evaluator-gpu:
         --local dockerfile=gpu \
         --opt build-arg:FIDESLIB_ARCH="$FIDESLIB_ARCH" \
         --opt build-arg:BUILD_JOBS="$BUILD_JOBS" \
+        --opt build-arg:VCS_REF="$CI_COMMIT_SHA" \
+        --opt build-arg:SOURCE_URL="$CI_PROJECT_URL" \
+        --opt build-arg:BUILD_URL="$CI_PIPELINE_URL" \
         --output "type=image,\"name=$FIDES_GPU_IMAGE,$FIDES_GPU_LATEST\",push=true"

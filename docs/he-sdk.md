@@ -26,10 +26,10 @@ the conditions for introducing a remote backend or asynchronous job platform.
 - Add, subtract, multiply, square, sum, mean, and population variance are
   exposed by the local SDK.
 - FIDES remains available through the existing GPU image/service. The optional
-  local `he-sdk-fides` plugin source and pybind11 session are implemented. A
-  release stays gated on native compilation and decrypted-equivalence tests on
-  the T4 runner; without the installed plugin, selection remains an explicit
-  `BackendUnavailableError`.
+  local `he-sdk-fides` plugin source and pybind11 session are implemented. The
+  non-GPU CI runner compiles it, while runtime acceptance happens after
+  deployment on the K3s T4 node; without the installed plugin, selection
+  remains an explicit `BackendUnavailableError`.
 
 ## Install and run
 
@@ -40,16 +40,15 @@ python3 -m unittest discover -s tests -v
 python3 -m build --wheel
 ```
 
-GitLab keeps the wheel as a `build-sdk-wheel` artifact for 30 days. On the
+GitLab keeps the wheel as a `build-sdk-wheel` artifact for 60 days. On the
 default branch, the CPU image build consumes that exact artifact and stores the
 wheel, `SHA256SUMS`, and compatibility manifest under `/opt/he-sdk-wheel/`.
 The immutable Docker Hub image therefore remains a durable carrier for both
 the service runtime and its matching wheel.
 
-A version tag also publishes the wheel to the project's private GitLab PyPI
-registry for normal `pip` installation on another server. See
-`he-sdk-gitlab-registry.md` for publishing, authentication, and a standalone
-Python smoke test.
+A version tag publishes the `he_looming_sdk` wheel to public PyPI and to the
+project's private GitLab PyPI registry. See `he-sdk-pypi.md` for the public
+release and `he-sdk-gitlab-registry.md` for the private fallback.
 
 Run the native integration on supported Linux or in GitLab CI:
 

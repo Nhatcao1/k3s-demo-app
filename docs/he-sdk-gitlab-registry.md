@@ -1,9 +1,9 @@
 # HE SDK package registry guide
 
-`he-sdk` will be published to the private, PyPI-compatible package registry of
+`he_looming_sdk` will be published to the private, PyPI-compatible package registry of
 the `nhatcao99uetwork/k3s-demo-app` GitLab project when its release tag pipeline
-succeeds. It is not stored in Docker Hub, and it is not currently published to
-the public `pypi.org` index.
+succeeds. Public PyPI is the primary developer install path; GitLab remains the
+private fallback and internal package source.
 
 GitLab accepts either a numeric project ID or a URL-encoded project path in
 package API URLs. The filled project identifier for this repository is:
@@ -28,7 +28,7 @@ Make sure the version in `pyproject.toml` is `0.3.1`, merge the code, and push
 the matching tag:
 
 ```sh
-git tag -a v0.3.1 -m "Publish he-sdk 0.3.1"
+git tag -a v0.3.1 -m "Publish he_looming_sdk 0.3.1"
 git push origin v0.3.1
 ```
 
@@ -47,7 +47,7 @@ The token in the original command is the current job's built-in
 ```sh
 python -m pip install --no-deps \
   --index-url "https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he-sdk==0.3.1
+  he_looming_sdk==0.3.1
 ```
 
 If the consuming pipeline belongs to a different private project, allow that
@@ -60,7 +60,7 @@ Do not copy a CI job token to a server: it is temporary and tied to a running
 job. In the `k3s-demo-app` project, open **Settings > Repository > Deploy
 tokens**, then create a token with:
 
-- name: `he-sdk-reader`;
+- name: `he-looming-sdk-reader`;
 - an appropriate expiry date;
 - scope: `read_package_registry` only.
 
@@ -78,7 +78,7 @@ printf '\n'
 
 python -m pip install --no-deps \
   --index-url "https://${HE_SDK_GITLAB_USER}:${HE_SDK_GITLAB_TOKEN}@gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he-sdk==0.3.1
+  he_looming_sdk==0.3.1
 
 unset HE_SDK_GITLAB_TOKEN
 ```
@@ -97,7 +97,7 @@ password REPLACE_WITH_DEPLOY_TOKEN
 chmod 600 ~/.netrc
 python -m pip install --no-deps \
   --index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he-sdk==0.3.1
+  he_looming_sdk==0.3.1
 ```
 
 Never commit `.netrc`, a deploy token, or an index URL containing credentials.
@@ -118,7 +118,7 @@ python -m pip install \
   openfhe==1.5.1.0.24.4
 python -m pip install --no-deps \
   --index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he-sdk==0.3.1
+  he_looming_sdk==0.3.1
 ```
 
 The last command assumes the deploy-token credentials are in `~/.netrc`.

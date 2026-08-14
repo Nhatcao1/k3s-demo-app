@@ -2,7 +2,7 @@
 
 ## Local SDK
 
-The repository also builds a local `he-sdk` Python wheel. Its OpenFHE adapter
+The repository also builds the `he_looming_sdk` Python distribution. Its OpenFHE adapter
 reuses `openfhe_cpu/runtime.py`, which is the same function layer used by the
 CPU HTTP evaluator. Application developers therefore get a different wrapper,
 not a second implementation of the HE calculations.
@@ -24,12 +24,12 @@ it is published only after its T4 equivalence gate passes. See
 The current-vs-target layer boundaries and deliberately smaller remote roadmap
 are in `docs/he-sdk-architecture.md`.
 
-Tags such as `v0.3.1` publish the wheel to this project's private GitLab PyPI
-registry. See `docs/he-sdk-gitlab-registry.md` for the filled package URL,
-release flow, deploy-token preparation, and server installation commands.
+Tags such as `v0.3.1` publish the wheel to public PyPI and to this project's
+private GitLab PyPI registry. See `docs/he-sdk-pypi.md` for public publishing
+and `docs/he-sdk-gitlab-registry.md` for the private fallback.
 
 The successful CPU image contains the verified wheel at
-`/opt/he-sdk-wheel/he_sdk-*.whl`. The GitOps repository provides
+`/opt/he-sdk-wheel/he_looming_sdk-*.whl`. The GitOps repository provides
 `scripts/sdk/run-smoke.sh cpu-<short-sha>` to install and execute it in a K3s
 Job without modifying the server host.
 

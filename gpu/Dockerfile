@@ -105,8 +105,18 @@ COPY --from=builder /opt/he-sdk-fides-wheel/ /
 
 FROM builder AS runtime
 
+ARG VCS_REF=unknown
+ARG SOURCE_URL=unknown
+ARG BUILD_URL=unknown
+
 WORKDIR /app
 COPY api /app/api
+
+# Preserve the exact source and pipeline that produced a runtime image. These
+# labels make a failure from the GPU cluster traceable to one GitLab commit.
+LABEL org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.url="${BUILD_URL}"
 
 ENV HE_GPU_WORKER=/src/worker/build/he-gpu-worker \
     HE_GPU_DEMO_WORKER=/src/worker/build/he-gpu-demo \

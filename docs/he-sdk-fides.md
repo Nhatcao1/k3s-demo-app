@@ -12,9 +12,10 @@ with HESession.create(backend="fides") as he:
     print(he.decrypt(result))
 ```
 
-The public source is implemented, but it remains experimental until the native
-tag pipeline compiles it and the T4 runner passes all seven decrypted-result
-equivalence checks.
+The public source is implemented, but it remains experimental. The non-GPU CI
+runner compiles and packages it; runtime acceptance happens only after the
+matching immutable image is deployed to the K3s T4 node and its smoke checks
+pass.
 
 ## Code path
 
@@ -41,7 +42,7 @@ secretless HTTP evaluator, which never receives a secret key.
 Keep these packages separate:
 
 ```text
-he-sdk==0.3.1          lightweight backend-neutral core
+he_looming_sdk==0.3.1  lightweight backend-neutral core
 he-sdk-fides==0.1.0    Linux/Python/CUDA native plugin
 ```
 
@@ -55,32 +56,33 @@ uses Ubuntu 24.04/Python 3.12.
 
 ## CI build and acceptance
 
-The pipeline has four relevant jobs:
+The pipeline has four relevant paths:
 
 1. `build-sdk-wheel` builds the core wheel.
 2. `build-fides-sdk-wheel` builds the native plugin in the CUDA Docker builder.
-3. `test-fides-sdk-native` runs on a GitLab runner tagged `gpu` and executes all
-   seven operations on the GPU.
-4. `publish-fides-sdk-gitlab` uploads the plugin only after the GPU test stage
-   passes.
+3. `test-he` runs the Python and source-contract tests without executing CUDA.
+4. `publish-fides-sdk-gitlab` uploads the compiled plugin from a matching
+   `fides-v...` tag.
 
-The GPU job compares decrypted results from isolated OpenFHE and FIDES smoke
-jobs. It never loads stock OpenFHE and patched OpenFHE into one process.
+There is deliberately no GPU runtime test in GitLab CI because the self-hosted
+runner has no GPU. A successful pipeline proves that the source compiles and
+the package/image can be produced; it does not prove CUDA runtime correctness.
+Deploy `gpu-<CI_COMMIT_SHORT_SHA>` to the K3s T4 node for that acceptance gate.
 
 For a build-only artifact on `main`, manually start `build-fides-sdk-wheel`.
 The wheel is also stored under `/opt/he-sdk-fides-wheel` in the GPU image.
 
-To release version `0.1.0`, first configure an NVIDIA-enabled GitLab runner
-with the tag `gpu`. Publish `he-sdk==0.3.1` first because it is the plugin's
-exact core dependency, then push:
+To release version `0.1.0`, publish `he_looming_sdk==0.3.1` first because it is the
+plugin's exact core dependency. Then push:
 
 ```sh
 git tag -a fides-v0.1.0 -m "Publish he-sdk-fides 0.1.0"
 git push origin fides-v0.1.0
 ```
 
-If there is no online runner tagged `gpu`, the release pipeline intentionally
-waits instead of publishing an untested native wheel.
+This release is a staging artifact until `HE_SDK_BACKEND=fides python -m
+he_sdk.smoke` succeeds on the target GPU server. Record the immutable image
+tag, Pod events and logs for any failure before changing the implementation.
 
 ## Install on the GPU server
 
@@ -94,7 +96,7 @@ SDK_INDEX="https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/pa
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install --no-deps --index-url "$SDK_INDEX" he-sdk==0.3.1
+python -m pip install --no-deps --index-url "$SDK_INDEX" he_looming_sdk==0.3.1
 python -m pip install --no-deps --index-url "$SDK_INDEX" he-sdk-fides==0.1.0
 ```
 
