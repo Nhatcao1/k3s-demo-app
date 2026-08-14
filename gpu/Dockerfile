@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libomp-dev \
     patch \
     python3 \
+    python3-dev \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # This image contains only FIDESlib and its matching patched OpenFHE. The
@@ -31,6 +33,7 @@ RUN cmake \
       -B /src/FIDESlib/deps/openfhe-build \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=/opt/openfhe \
+      -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
       -DBUILD_STATIC=ON \
       -DBUILD_SHARED=OFF \
       -DBUILD_UNITTESTS=OFF \
@@ -46,6 +49,7 @@ RUN cmake \
       -S /src/FIDESlib \
       -B /src/FIDESlib/build \
       -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
       -DFIDESLIB_ARCH="${FIDESLIB_ARCH}" \
       -DFIDESLIB_INSTALL_OPENFHE=OFF \
       -DFIDESLIB_COMPILE_TESTS=OFF \
@@ -74,6 +78,7 @@ RUN set -eux; \
     done
 
 COPY worker /src/worker
+COPY he_sdk_fides /src/he_sdk_fides
 
 RUN cmake \
       -S /src/worker \
@@ -83,11 +88,29 @@ RUN cmake \
 
 RUN cmake --build /src/worker/build --parallel "${BUILD_JOBS}"
 
+# Build the optional SDK plugin with the exact FIDESlib/patched-OpenFHE/CUDA
+# toolchain used by the worker. The core he-sdk wheel remains separate.
+RUN python3 -m venv /opt/fides-wheel-build \
+    && /opt/fides-wheel-build/bin/python -m pip install \
+      --disable-pip-version-check 'build>=1.2,<2'
+
+RUN CMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
+    /opt/fides-wheel-build/bin/python -m build \
+      --wheel \
+      --outdir /opt/he-sdk-fides-wheel \
+      /src/he_sdk_fides
+
+FROM scratch AS sdk-wheel
+COPY --from=builder /opt/he-sdk-fides-wheel/ /
+
+FROM builder AS runtime
+
 WORKDIR /app
 COPY api /app/api
 
 ENV HE_GPU_WORKER=/src/worker/build/he-gpu-worker \
     HE_GPU_DEMO_WORKER=/src/worker/build/he-gpu-demo \
+    HE_SDK_FIDES_WHEEL_DIR=/opt/he-sdk-fides-wheel \
     HOST=0.0.0.0 \
     PORT=8080
 

@@ -1,0 +1,19 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.10,<1",
+  "pybind11>=2.13,<4",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "he-sdk-fides"
+version = "0.1.0"
+description = "Optional CUDA FIDESlib backend for he-sdk"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["he-sdk==0.3.0"]
+
+[tool.scikit-build]
+cmake.version = ">=3.25.2"
+wheel.packages = ["src/he_sdk_fides"]
+build-dir = "build/{wheel_tag}"

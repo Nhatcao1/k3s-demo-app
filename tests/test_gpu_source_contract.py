@@ -60,6 +60,48 @@ class FidesSourceContractTests(unittest.TestCase):
         ):
             self.assertIn(f"{method}(", public_api)
 
+    def test_worker_and_python_binding_reuse_one_backend_library(self) -> None:
+        cmake = (REPOSITORY / "gpu" / "worker" / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("add_library(\n  he_gpu_backend", cmake)
+        self.assertIn("POSITION_INDEPENDENT_CODE ON", cmake)
+        self.assertIn(
+            "target_link_libraries(he-gpu-worker PRIVATE he_gpu_backend)",
+            cmake,
+        )
+        self.assertIn(
+            "target_link_libraries(he-gpu-demo PRIVATE he_gpu_backend)",
+            cmake,
+        )
+
+        plugin_cmake = (
+            REPOSITORY / "gpu" / "he_sdk_fides" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        self.assertIn("target_link_libraries(_native PRIVATE he_gpu_backend)", plugin_cmake)
+
+    def test_native_session_exposes_the_sdk_backend_methods(self) -> None:
+        binding = (
+            REPOSITORY
+            / "gpu"
+            / "he_sdk_fides"
+            / "native"
+            / "bindings.cpp"
+        ).read_text(encoding="utf-8")
+        for method in (
+            "encrypt",
+            "decrypt",
+            "add",
+            "subtract",
+            "multiply",
+            "square",
+            "sum",
+            "mean",
+            "variance",
+            "close",
+        ):
+            self.assertIn(f'.def("{method}"', binding)
+
 
 if __name__ == "__main__":
     unittest.main()

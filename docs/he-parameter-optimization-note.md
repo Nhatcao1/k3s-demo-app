@@ -5,7 +5,7 @@ We are first proving that `add`, `subtract`, `multiply`, `square`, `sum`,
 The current OpenFHE settings are test defaults, not final optimized settings.
 They live in one place: `openfhe_cpu/runtime.py`.
 
-Current trial values are depth `2`, first modulus `60`, scaling modulus `50`,
+Current trial values are depth `3`, first modulus `60`, scaling modulus `50`,
 ring dimension `16384`, batch size `8192`, and `FLEXIBLEAUTO` scaling. The
 runtime also creates multiplication/relinearization keys and SUM rotation
 keys. A client should use `OpenFHECPU()` instead of repeating this setup.

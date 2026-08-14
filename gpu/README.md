@@ -4,6 +4,11 @@ This directory is the isolated GPU build context. It contains FIDESlib and its
 matching patched OpenFHE only. It must not install or link the standard
 `openfhe-python` runtime used by the repository's CPU image.
 
+It also builds the optional `he-sdk-fides` native wheel. The Python binding,
+worker executable, and demo executable reuse the same `he_gpu_backend` C++
+library. The wheel is kept under `/opt/he-sdk-fides-wheel` and is released only
+after the tagged T4 runner equivalence test. See `docs/he-sdk-fides.md`.
+
 On `main`, GitLab CI builds and pushes only
 `dockerboi99/he_k8s:gpu-latest`. The job compiles CUDA code but does not execute
 GPU tests. `FIDESLIB_ARCH` must match the server GPU before deployment.

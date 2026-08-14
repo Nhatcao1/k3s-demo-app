@@ -3,12 +3,16 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "he-k8s-client"
-version = "0.2.0"
-description = "Dependency-free Python client for the trusted HE K8s gateway"
+name = "he-sdk"
+version = "0.3.0"
+description = "Local homomorphic-encryption SDK with OpenFHE and planned FIDES backends"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
-[tool.setuptools]
-packages = ["he_client"]
+[project.optional-dependencies]
+openfhe = ["openfhe==1.5.1.0.24.4"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["common*", "he_sdk*", "openfhe_cpu*", "he_client*"]

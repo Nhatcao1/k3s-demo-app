@@ -1,0 +1,38 @@
+"""Internal backend contract used by :class:`he_sdk.HESession`."""
+
+from __future__ import annotations
+
+from typing import Any, Protocol, Sequence
+
+from he_sdk.capabilities import CapabilitySet
+from he_sdk.config import CKKSConfig
+
+
+class HEBackend(Protocol):
+    name: str
+    engine_version: str
+    context_id: str
+    key_bundle_id: str
+    capabilities: CapabilitySet
+
+    def __init__(self, config: CKKSConfig) -> None: ...
+
+    def encrypt(self, values: Sequence[float]) -> Any: ...
+
+    def decrypt(self, encrypted: Any, length: int) -> list[float]: ...
+
+    def add(self, left: Any, right: Any) -> Any: ...
+
+    def subtract(self, left: Any, right: Any) -> Any: ...
+
+    def multiply(self, left: Any, right: Any) -> Any: ...
+
+    def square(self, encrypted: Any) -> Any: ...
+
+    def sum(self, encrypted: Any, valid_count: int) -> Any: ...
+
+    def mean(self, encrypted: Any, valid_count: int) -> Any: ...
+
+    def variance(self, encrypted: Any, valid_count: int) -> Any: ...
+
+    def close(self) -> None: ...

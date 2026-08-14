@@ -23,10 +23,18 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# GitLab CI builds this wheel once, verifies it, and downloads the artifact
+# into the BuildKit context. Keeping it in the immutable CPU image lets a
+# remote server install and test the exact SDK artifact without a compiler or
+# access to the GitLab artifact API.
+COPY dist/he_sdk-*.whl dist/SHA256SUMS /opt/he-sdk-wheel/
+COPY compatibility/he-sdk-v1.toml /opt/he-sdk-wheel/compatibility.toml
+
 COPY api ./api
 COPY backends ./backends
 COPY client/__init__.py client/cpu_service_demo.py ./client/
 COPY common ./common
+COPY he_sdk ./he_sdk
 COPY openfhe_cpu ./openfhe_cpu
 
 RUN useradd --create-home --uid 10001 appuser

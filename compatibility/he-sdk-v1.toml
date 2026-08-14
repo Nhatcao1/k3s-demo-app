@@ -1,0 +1,47 @@
+schema_version = 1
+profile = "ckks-balanced-v1"
+sdk_version = "0.3.0"
+status = "development"
+
+[python]
+minimum = "3.10"
+ci = "3.12"
+
+[openfhe]
+python_distribution = "openfhe==1.5.1.0.24.4"
+scheme = "CKKS"
+security_level = "HEStd_128_classic"
+multiplicative_depth = 3
+ring_dimension = 16384
+batch_size = 8192
+first_modulus_size = 60
+scaling_modulus_size = 50
+scaling_technique = "FLEXIBLEAUTO"
+key_switch_technique = "library-default"
+secret_key_distribution = "library-default"
+serialization = "openfhe-binary-v1"
+
+[fides]
+sdk_backend_status = "plugin-source-implemented; native T4 acceptance pending"
+python_distribution = "he-sdk-fides==0.1.0"
+git_commit = "786c7600fb2f16b724e0acf73df367b27b8afed6"
+source_description = "v2.1.2-7-g786c760 (README identifies 2.1.3)"
+patched_openfhe = "fideslib-ref-1.5.1.1"
+cuda_builder = "nvidia/cuda:12.9.1-devel-ubuntu24.04"
+target_architecture = "75-real"
+interoperability_status = "pending T4 decrypted-equivalence acceptance"
+
+[resources.cpu]
+expected_cpu = "1-4 cores"
+expected_ram = "2-8 GiB"
+
+[resources.gpu]
+target = "NVIDIA T4"
+expected_cpu = "2-8 cores"
+expected_ram = "4-16 GiB"
+expected_vram = "TBD after measured SDK binding prototype"
+
+[security]
+secret_key_owner = "local HESession or trusted client only"
+evaluator_secret_key_allowed = false
+automatic_cpu_gpu_fallback = false

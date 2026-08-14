@@ -1,5 +1,38 @@
 # HE application for the K3s lab
 
+## Local SDK
+
+The repository also builds a local `he-sdk` Python wheel. Its OpenFHE adapter
+reuses `openfhe_cpu/runtime.py`, which is the same function layer used by the
+CPU HTTP evaluator. Application developers therefore get a different wrapper,
+not a second implementation of the HE calculations.
+
+```python
+from he_sdk import HESession
+
+with HESession.create(backend="openfhe") as he:
+    values = he.encrypt([1.0, 2.0, 3.0, 4.0])
+    encrypted_result = he.variance(values)
+    result = he.decrypt(encrypted_result)
+```
+
+GitLab CI builds the wheel and runs native OpenFHE integration tests. Local
+development only needs the dependency-free contract tests. The FIDES local SDK
+backend is an optional `he-sdk-fides` native plugin built by the CUDA CI path;
+it is published only after its T4 equivalence gate passes. See
+`docs/he-sdk.md`, `docs/he-sdk-fides.md`, and `compatibility/he-sdk-v1.toml`.
+The current-vs-target layer boundaries and deliberately smaller remote roadmap
+are in `docs/he-sdk-architecture.md`.
+
+Tags such as `v0.3.0` publish the wheel to this project's private GitLab PyPI
+registry. See `docs/he-sdk-gitlab-registry.md` for the filled package URL,
+release flow, deploy-token preparation, and server installation commands.
+
+The successful CPU image contains the verified wheel at
+`/opt/he-sdk-wheel/he_sdk-*.whl`. The GitOps repository provides
+`scripts/sdk/run-smoke.sh cpu-<short-sha>` to install and execute it in a K3s
+Job without modifying the server host.
+
 This repository now builds one secretless **CPU OpenFHE evaluator**. The first
 scope is intentionally small:
 
