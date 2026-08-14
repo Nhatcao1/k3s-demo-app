@@ -24,7 +24,7 @@ it is published only after its T4 equivalence gate passes. See
 The current-vs-target layer boundaries and deliberately smaller remote roadmap
 are in `docs/he-sdk-architecture.md`.
 
-Tags such as `v0.3.0` publish the wheel to this project's private GitLab PyPI
+Tags such as `v0.3.1` publish the wheel to this project's private GitLab PyPI
 registry. See `docs/he-sdk-gitlab-registry.md` for the filled package URL,
 release flow, deploy-token preparation, and server installation commands.
 

@@ -41,7 +41,7 @@ secretless HTTP evaluator, which never receives a secret key.
 Keep these packages separate:
 
 ```text
-he-sdk==0.3.0          lightweight backend-neutral core
+he-sdk==0.3.1          lightweight backend-neutral core
 he-sdk-fides==0.1.0    Linux/Python/CUDA native plugin
 ```
 
@@ -71,7 +71,7 @@ For a build-only artifact on `main`, manually start `build-fides-sdk-wheel`.
 The wheel is also stored under `/opt/he-sdk-fides-wheel` in the GPU image.
 
 To release version `0.1.0`, first configure an NVIDIA-enabled GitLab runner
-with the tag `gpu`. Publish `he-sdk==0.3.0` first because it is the plugin's
+with the tag `gpu`. Publish `he-sdk==0.3.1` first because it is the plugin's
 exact core dependency, then push:
 
 ```sh
@@ -94,7 +94,7 @@ SDK_INDEX="https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/pa
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install --no-deps --index-url "$SDK_INDEX" he-sdk==0.3.0
+python -m pip install --no-deps --index-url "$SDK_INDEX" he-sdk==0.3.1
 python -m pip install --no-deps --index-url "$SDK_INDEX" he-sdk-fides==0.1.0
 ```
 

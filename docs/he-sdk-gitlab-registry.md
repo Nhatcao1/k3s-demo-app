@@ -18,18 +18,18 @@ The resulting package index is:
 https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple
 ```
 
-## Publish version 0.3.0 from CI
+## Publish version 0.3.1 from CI
 
 The `publish-sdk-gitlab` job in `.gitlab-ci.yml` publishes the wheel only from
 a semantic-version tag. It uses GitLab's short-lived `CI_JOB_TOKEN`; do not
 create or save a publishing token for this job.
 
-Make sure the version in `pyproject.toml` is `0.3.0`, merge the code, and push
+Make sure the version in `pyproject.toml` is `0.3.1`, merge the code, and push
 the matching tag:
 
 ```sh
-git tag -a v0.3.0 -m "Publish he-sdk 0.3.0"
-git push origin v0.3.0
+git tag -a v0.3.1 -m "Publish he-sdk 0.3.1"
+git push origin v0.3.1
 ```
 
 The publish job deliberately fails if the tag and package version differ.
@@ -47,7 +47,7 @@ The token in the original command is the current job's built-in
 ```sh
 python -m pip install --no-deps \
   --index-url "https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he-sdk==0.3.0
+  he-sdk==0.3.1
 ```
 
 If the consuming pipeline belongs to a different private project, allow that
@@ -78,7 +78,7 @@ printf '\n'
 
 python -m pip install --no-deps \
   --index-url "https://${HE_SDK_GITLAB_USER}:${HE_SDK_GITLAB_TOKEN}@gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he-sdk==0.3.0
+  he-sdk==0.3.1
 
 unset HE_SDK_GITLAB_TOKEN
 ```
@@ -97,7 +97,7 @@ password REPLACE_WITH_DEPLOY_TOKEN
 chmod 600 ~/.netrc
 python -m pip install --no-deps \
   --index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he-sdk==0.3.0
+  he-sdk==0.3.1
 ```
 
 Never commit `.netrc`, a deploy token, or an index URL containing credentials.
@@ -118,7 +118,7 @@ python -m pip install \
   openfhe==1.5.1.0.24.4
 python -m pip install --no-deps \
   --index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he-sdk==0.3.0
+  he-sdk==0.3.1
 ```
 
 The last command assumes the deploy-token credentials are in `~/.netrc`.
