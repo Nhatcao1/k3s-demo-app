@@ -202,9 +202,6 @@ publish-sdk-pypi:
   image: python:3.12-alpine
   dependencies:
     - build-sdk-wheel
-  id_tokens:
-    PYPI_ID_TOKEN:
-      aud: pypi
   environment:
     name: pypi
     url: https://pypi.org/project/he-looming-sdk/
@@ -216,10 +213,12 @@ publish-sdk-pypi:
     - |
       PACKAGE_VERSION="$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
       test "$CI_COMMIT_TAG" = "v$PACKAGE_VERSION"
+      test -n "${PYPI_API_TOKEN:-}"
     - python -m twine check dist/*.whl
-    # Twine exchanges this job's short-lived PYPI_ID_TOKEN for a temporary
-    # upload token. No long-lived PyPI token is stored in GitLab.
-    - python -m twine upload --non-interactive dist/*.whl
+    - |
+      TWINE_USERNAME=__token__ \
+      TWINE_PASSWORD="$PYPI_API_TOKEN" \
+      python -m twine upload --non-interactive dist/*.whl
 
 publish-fides-sdk-gitlab:
   stage: publish

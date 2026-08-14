@@ -14,24 +14,29 @@ license to copy, modify, or redistribute the source.
 
 ## One-time PyPI preparation
 
-Before pushing the first release tag, sign in to PyPI and open **Publishing**.
-Add a pending GitLab trusted publisher with these exact values:
+Before pushing the first release tag, create a PyPI API token. Because the
+`he-looming-sdk` project does not exist yet, the first token must be scoped to
+the entire PyPI account. After the first successful release, replace it with a
+new token scoped only to the created `he-looming-sdk` project.
+
+In the GitLab project, open **Settings > CI/CD > Variables** and add:
 
 ```text
-PyPI project name: he-looming-sdk
-GitLab namespace: nhatcao99uetwork
-GitLab project: k3s-demo-app
-Top-level pipeline file: .gitlab-ci.yml
-GitLab environment: pypi
+Key: PYPI_API_TOKEN
+Value: pypi-<the token copied from PyPI>
+Type: Variable
+Visibility: Masked and hidden
+Protect variable: enabled
+Expand variable reference: disabled
 ```
 
-The project name was checked against the PyPI JSON API before this release and
-was not registered. The pending publisher reserves creation for the matching
-GitLab.com OIDC identity when the first upload runs.
+Protect the GitLab tag pattern `v*` and allow only Maintainers to create it.
+The protected token is otherwise unavailable to the release pipeline. Never
+put the token in `.gitlab-ci.yml`, a shell command, repository file, or job log.
 
-No `PYPI_API_TOKEN` variable is required. The `publish-sdk-pypi` job requests a
-short-lived `PYPI_ID_TOKEN` from GitLab and Twine exchanges it for a temporary
-PyPI upload credential.
+The project name was checked against the PyPI JSON API before this release and
+was not registered. The `publish-sdk-pypi` job authenticates as `__token__`
+with `PYPI_API_TOKEN`; the variable is required only in the tag pipeline.
 
 ## Release
 
