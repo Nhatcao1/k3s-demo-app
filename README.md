@@ -71,7 +71,14 @@ GET  /healthz
 GET  /readyz
 GET  /v1/capabilities
 POST /v1/evaluate
+POST /v1/demo/evaluate
+POST /v1/demo/bgv/evaluate
 ```
+
+`/v1/demo/bgv/evaluate` is a trusted CPU-only integer multiplication check. It
+creates a BGV context, encrypts packed integer vectors, performs `EvalMult` or
+`EvalSum`, decrypts, and reports timings. The production-style secretless
+`/v1/evaluate` contract remains CKKS; FIDESlib GPU remains CKKS-only.
 
 Primitive request:
 
