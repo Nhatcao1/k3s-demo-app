@@ -21,6 +21,8 @@ variables:
   OPENFHE_CPU_LATEST: "docker.io/dockerboi99/he_k8s:cpu-latest"
   FIDES_GPU_IMAGE: "docker.io/dockerboi99/he_k8s:gpu-$CI_COMMIT_SHORT_SHA"
   FIDES_GPU_LATEST: "docker.io/dockerboi99/he_k8s:gpu-latest"
+  POSTGRES_IMAGE: "docker.io/dockerboi99/he_k8s:postgres-$CI_COMMIT_SHORT_SHA"
+  POSTGRES_LATEST: "docker.io/dockerboi99/he_k8s:postgres-latest"
   FIDESLIB_ARCH: "75-real"
   BUILD_JOBS: "4"
   SDK_WHEEL_DIR: "dist"
@@ -72,6 +74,11 @@ validate-files:
     - test -f tests/test_gpu_api.py
     - test -f tests/test_gpu_source_contract.py
     - test -f docs/gpu-known-errors.md
+    - test -f compose.postgres.yaml
+    - test -f postgres/Dockerfile
+    - test -f postgres/.dockerignore
+    - test -f postgres/init/001_he_store.sql
+    - test -f postgres/postgres.env.example
     - test -f gpu/Dockerfile
     - test -f gpu/api/app.py
     - test -f gpu/he_sdk_fides/pyproject.toml
@@ -329,3 +336,34 @@ build-fides-evaluator-gpu:
         --opt build-arg:SOURCE_URL="$CI_PROJECT_URL" \
         --opt build-arg:BUILD_URL="$CI_PIPELINE_URL" \
         --output "type=image,\"name=$FIDES_GPU_IMAGE,$FIDES_GPU_LATEST\",push=true"
+
+build-postgres-storage:
+  stage: build
+  image:
+    name: moby/buildkit:rootless
+    entrypoint: [""]
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      changes:
+        - .gitlab-ci.yml
+        - compose.postgres.yaml
+        - postgres/**/*
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      when: manual
+      allow_failure: true
+  before_script:
+    - mkdir -p "$HOME/.docker"
+    - |
+      DOCKERHUB_AUTH="$(printf '%s:%s' "$DOCKERHUB_USERNAME" "$DOCKERHUB_TOKEN" | base64 | tr -d '\n')"
+      printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
+        "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
+  script:
+    - echo "Building $POSTGRES_IMAGE and $POSTGRES_LATEST"
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=postgres \
+        --local dockerfile=postgres \
+        --output "type=image,\"name=$POSTGRES_IMAGE,$POSTGRES_LATEST\",push=true"

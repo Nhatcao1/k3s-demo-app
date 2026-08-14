@@ -1,0 +1,27 @@
+name: he-sdk-storage
+
+services:
+  postgres:
+    image: docker.io/dockerboi99/he_k8s:postgres-latest
+    build:
+      context: ./postgres
+    restart: unless-stopped
+    shm_size: 128mb
+    env_file:
+      - ./postgres/postgres.env
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - he_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  he_postgres_data:
+    name: he-sdk-postgres-data

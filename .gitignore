@@ -11,6 +11,7 @@ __pycache__/
 .env.*
 !.env.example
 secrets/
+postgres/postgres.env
 *.key
 *.pem
 

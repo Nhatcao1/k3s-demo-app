@@ -33,6 +33,11 @@ The successful CPU image contains the verified wheel at
 `scripts/sdk/run-smoke.sh cpu-<short-sha>` to install and execute it in a K3s
 Job without modifying the server host.
 
+For the first persistent storage trial, `compose.postgres.yaml` runs a separate
+PostgreSQL container with a durable named volume. Its initial schema stores SDK
+run metadata and encrypted/public artifacts only; it intentionally rejects a
+`secret_key` artifact type. See `postgres/README.md`.
+
 This repository now builds one secretless **CPU OpenFHE evaluator**. The first
 scope is intentionally small:
 
