@@ -23,6 +23,8 @@ variables:
   FIDES_GPU_LATEST: "docker.io/dockerboi99/he_k8s:gpu-latest"
   POSTGRES_IMAGE: "docker.io/dockerboi99/he_k8s:postgres-$CI_COMMIT_SHORT_SHA"
   POSTGRES_LATEST: "docker.io/dockerboi99/he_k8s:postgres-latest"
+  HE_NOTEBOOK_IMAGE: "docker.io/dockerboi99/he_k8s:notebook-$CI_COMMIT_SHORT_SHA"
+  HE_NOTEBOOK_LATEST: "docker.io/dockerboi99/he_k8s:notebook-latest"
   FIDESLIB_ARCH: "75-real"
   BUILD_JOBS: "4"
   SDK_WHEEL_DIR: "dist"
@@ -79,6 +81,7 @@ validate-files:
     - test -f postgres/.dockerignore
     - test -f postgres/init/001_he_store.sql
     - test -f postgres/postgres.env.example
+    - test -f Dockerfile.notebook
     - test -f gpu/Dockerfile
     - test -f gpu/api/app.py
     - test -f gpu/he_sdk_fides/pyproject.toml
@@ -291,6 +294,44 @@ build-openfhe-evaluator-cpu:
         --local context=. \
         --local dockerfile=. \
         --output "type=image,\"name=$OPENFHE_CPU_IMAGE,$OPENFHE_CPU_LATEST\",push=true"
+
+build-he-notebook:
+  stage: build
+  image:
+    name: moby/buildkit:rootless
+    entrypoint: [""]
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  dependencies:
+    - build-sdk-wheel
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      changes:
+        - .gitlab-ci.yml
+        - Dockerfile.notebook
+        - requirements.txt
+        - compatibility/**/*
+        - he_sdk/**/*
+        - openfhe_cpu/**/*
+        - pyproject.toml
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      when: manual
+      allow_failure: true
+  before_script:
+    - mkdir -p "$HOME/.docker"
+    - |
+      DOCKERHUB_AUTH="$(printf '%s:%s' "$DOCKERHUB_USERNAME" "$DOCKERHUB_TOKEN" | base64 | tr -d '\n')"
+      printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
+        "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
+  script:
+    - echo "Building $HE_NOTEBOOK_IMAGE and $HE_NOTEBOOK_LATEST"
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=. \
+        --opt filename=Dockerfile.notebook \
+        --output "type=image,\"name=$HE_NOTEBOOK_IMAGE,$HE_NOTEBOOK_LATEST\",push=true"
 
 build-fides-evaluator-gpu:
   stage: build

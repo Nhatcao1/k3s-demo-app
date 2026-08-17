@@ -1,0 +1,43 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/venv/bin:$PATH
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        ca-certificates \
+        libgomp1 \
+        libomp-dev \
+        python3 \
+        python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/venv
+
+WORKDIR /workspace
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir \
+        -r /tmp/requirements.txt \
+        'jupyterlab>=4,<5'
+
+# Reuse the exact wheel produced and checked by build-sdk-wheel. The notebook
+# image is therefore a consumer of the public SDK artifact, not a second copy
+# of the SDK source tree.
+COPY dist/he_looming_sdk-*.whl /opt/he-sdk-wheel/
+COPY dist/SHA256SUMS /opt/he-sdk-wheel/SHA256SUMS
+RUN cd /opt/he-sdk-wheel \
+    && sha256sum -c SHA256SUMS \
+    && pip install --no-cache-dir --no-deps he_looming_sdk-*.whl \
+    && python -c 'import openfhe; from he_sdk import HESession; print("HE notebook runtime ready")'
+
+RUN useradd --create-home --uid 10001 notebook \
+    && chown notebook:notebook /workspace
+
+USER notebook
+
+EXPOSE 8888
+
+CMD ["python", "-m", "jupyterlab", "--no-browser", "--ip=0.0.0.0", "--port=8888", "--ServerApp.root_dir=/workspace"]
