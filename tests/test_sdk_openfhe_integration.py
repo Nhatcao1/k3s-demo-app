@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import math
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from he_sdk import HESession
@@ -57,6 +61,53 @@ class OpenFHESDKIntegrationTests(unittest.TestCase):
             self.assert_close(
                 he.decrypt(he.variance(left)), expected_variance
             )
+
+    def test_secretless_workspace_across_processes(self) -> None:
+        values = [10.0, 20.0, 30.0]
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            with HESession.create(backend="openfhe") as owner:
+                owner.save(owner.encrypt(values), workspace, name="input")
+                compute_code = """
+from pathlib import Path
+import sys
+from he_sdk import HESession, SecretKeyUnavailableError
+
+workspace = Path(sys.argv[1])
+with HESession.open_workspace(workspace) as compute:
+    encrypted = compute.load(workspace, name="input")
+    compute.save(compute.sum(encrypted), workspace, name="sum")
+    compute.save(compute.mean(encrypted), workspace, name="mean")
+    compute.save(compute.variance(encrypted), workspace, name="variance")
+    try:
+        compute.decrypt(encrypted)
+    except SecretKeyUnavailableError:
+        pass
+    else:
+        raise RuntimeError("compute session unexpectedly decrypted input")
+"""
+                completed = subprocess.run(
+                    [sys.executable, "-c", compute_code, str(workspace)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+                )
+                self.assert_close(
+                    owner.decrypt(owner.load(workspace, name="sum")), 60.0
+                )
+                self.assert_close(
+                    owner.decrypt(owner.load(workspace, name="mean")), 20.0
+                )
+                self.assert_close(
+                    owner.decrypt(owner.load(workspace, name="variance")),
+                    200.0 / 3.0,
+                )
 
 
 if __name__ == "__main__":

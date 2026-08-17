@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import importlib
 import math
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Sequence
 
 
@@ -129,7 +131,84 @@ class OpenFHECPU:
 
     def __init__(self, openfhe_module: Any | None = None) -> None:
         of = openfhe_module or importlib.import_module("openfhe")
+        self._openfhe = of
         self._context, self._keys = create_trial_context_and_keys(of)
+
+    @classmethod
+    def from_public_material(
+        cls, openfhe_module: Any, directory: Path
+    ) -> "OpenFHECPU":
+        """Load a compute-only runtime without a secret key."""
+        of = openfhe_module
+        context, ok = of.DeserializeCryptoContext(
+            str(directory / "context.bin"), of.BINARY
+        )
+        if not ok:
+            raise RuntimeError("could not deserialize OpenFHE context")
+        public_key, ok = of.DeserializePublicKey(
+            str(directory / "public-key.bin"), of.BINARY
+        )
+        if not ok:
+            raise RuntimeError("could not deserialize OpenFHE public key")
+        if not context.DeserializeEvalMultKey(
+            str(directory / "multiplication-keys.bin"), of.BINARY
+        ):
+            raise RuntimeError("could not deserialize multiplication keys")
+        if not context.DeserializeEvalAutomorphismKey(
+            str(directory / "rotation-keys.bin"), of.BINARY
+        ):
+            raise RuntimeError("could not deserialize rotation keys")
+
+        runtime = cls.__new__(cls)
+        runtime._openfhe = of
+        runtime._context = context
+        runtime._keys = SimpleNamespace(
+            publicKey=public_key,
+            secretKey=None,
+        )
+        return runtime
+
+    @property
+    def has_secret_key(self) -> bool:
+        return self._keys.secretKey is not None
+
+    def export_public_material(self, directory: Path) -> None:
+        """Write only material safe for a secretless compute process."""
+        directory.mkdir(parents=True, exist_ok=True)
+        of = self._openfhe
+        if not of.SerializeToFile(
+            str(directory / "context.bin"), self._context, of.BINARY
+        ):
+            raise RuntimeError("could not serialize OpenFHE context")
+        if not of.SerializeToFile(
+            str(directory / "public-key.bin"),
+            self._keys.publicKey,
+            of.BINARY,
+        ):
+            raise RuntimeError("could not serialize OpenFHE public key")
+        if not self._context.SerializeEvalMultKey(
+            str(directory / "multiplication-keys.bin"), of.BINARY
+        ):
+            raise RuntimeError("could not serialize multiplication keys")
+        if not self._context.SerializeEvalAutomorphismKey(
+            str(directory / "rotation-keys.bin"), of.BINARY
+        ):
+            raise RuntimeError("could not serialize rotation keys")
+
+    def serialize_ciphertext(self, encrypted: Any, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._openfhe.SerializeToFile(
+            str(path), encrypted, self._openfhe.BINARY
+        ):
+            raise RuntimeError(f"could not serialize ciphertext {path.name}")
+
+    def deserialize_ciphertext(self, path: Path) -> Any:
+        encrypted, ok = self._openfhe.DeserializeCiphertext(
+            str(path), self._openfhe.BINARY
+        )
+        if not ok:
+            raise RuntimeError(f"could not deserialize ciphertext {path.name}")
+        return encrypted
 
     @staticmethod
     def _values(values: Sequence[float]) -> list[float]:
@@ -148,6 +227,8 @@ class OpenFHECPU:
     def decrypt(self, encrypted: Any, length: int) -> list[float]:
         if not 1 <= length <= BATCH_SIZE:
             raise ValueError(f"output length must be in [1, {BATCH_SIZE}]")
+        if self._keys.secretKey is None:
+            raise RuntimeError("secret key is not available in this runtime")
         plaintext = self._context.Decrypt(
             self._keys.secretKey,
             encrypted,

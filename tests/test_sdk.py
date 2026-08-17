@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+import tempfile
+import tomllib
 import unittest
 from unittest import mock
 
 from he_sdk import (
     BackendUnavailableError,
+    ArtifactError,
     CKKSConfig,
     CapabilitySet,
     EncryptedScalar,
@@ -13,7 +18,9 @@ from he_sdk import (
     IncompatibleCiphertextError,
     OPERATION_CONTRACTS,
     SessionClosedError,
+    SecretKeyUnavailableError,
     UnsupportedOperationError,
+    __version__,
 )
 from he_sdk.backends import create_backend
 from he_sdk import smoke
@@ -36,10 +43,12 @@ class FakeBackend:
             "mean",
             "variance",
         ),
+        supports_serialization=True,
     )
 
-    def __init__(self) -> None:
+    def __init__(self, *, has_secret_key: bool = True) -> None:
         self.closed = False
+        self.has_secret_key = has_secret_key
 
     def encrypt(self, values: list[float]) -> list[float]:
         return list(values)
@@ -73,6 +82,23 @@ class FakeBackend:
     def close(self) -> None:
         self.closed = True
 
+    def export_public_material(self, directory: Path) -> None:
+        directory.mkdir(parents=True, exist_ok=True)
+        for name in (
+            "context.bin",
+            "public-key.bin",
+            "multiplication-keys.bin",
+            "rotation-keys.bin",
+        ):
+            (directory / name).write_bytes(f"fake:{name}".encode())
+
+    def serialize_ciphertext(self, encrypted: list[float], path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(encrypted), encoding="utf-8")
+
+    def deserialize_ciphertext(self, path: Path) -> list[float]:
+        return [float(value) for value in json.loads(path.read_text())]
+
 
 class SDKContractTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -94,6 +120,19 @@ class SDKContractTests(unittest.TestCase):
             ("add", "subtract", "multiply", "square", "sum", "mean", "variance"),
         )
         self.assertEqual(OPERATION_CONTRACTS["variance"].depth_cost, 2)
+
+    def test_package_and_compatibility_versions_match(self) -> None:
+        root = Path(__file__).parents[1]
+        project = tomllib.loads((root / "pyproject.toml").read_text())
+        compatibility = tomllib.loads(
+            (root / "compatibility" / "he-sdk-v1.toml").read_text()
+        )
+        self.assertEqual(__version__, project["project"]["version"])
+        self.assertEqual(__version__, compatibility["sdk_version"])
+        self.assertEqual(
+            compatibility["openfhe"]["workspace_format"],
+            "he-sdk-workspace-v1",
+        )
 
     def test_vector_functions_and_reductions(self) -> None:
         left = self.session.encrypt([1, 2, 3, 4])
@@ -174,6 +213,88 @@ class SDKContractTests(unittest.TestCase):
         self.assertTrue(self.backend.closed)
         with self.assertRaises(SessionClosedError):
             self.session.encrypt([1])
+
+    def test_secretless_workspace_round_trip_between_sessions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            encrypted = self.session.encrypt([10, 20, 30])
+            self.session.save(encrypted, workspace, name="input")
+
+            manifest = json.loads(
+                (workspace / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertFalse(manifest["contains_plaintext"])
+            self.assertFalse(manifest["contains_secret_key"])
+            self.assertNotIn("secret", " ".join(path.name for path in workspace.rglob("*")))
+
+            compute_backend = FakeBackend(has_secret_key=False)
+            with mock.patch(
+                "he_sdk.session.create_backend_from_public_material",
+                return_value=compute_backend,
+            ):
+                with HESession.open_workspace(workspace) as compute:
+                    compute_input = compute.load(workspace, name="input")
+                    compute.save(
+                        compute.sum(compute_input), workspace, name="sum"
+                    )
+                    compute.save(
+                        compute.mean(compute_input), workspace, name="mean"
+                    )
+                    compute.save(
+                        compute.variance(compute_input),
+                        workspace,
+                        name="variance",
+                    )
+                    with self.assertRaises(SecretKeyUnavailableError):
+                        compute.decrypt(compute_input)
+
+            self.assertEqual(
+                self.session.decrypt(self.session.load(workspace, name="sum")),
+                60.0,
+            )
+            self.assertEqual(
+                self.session.decrypt(self.session.load(workspace, name="mean")),
+                20.0,
+            )
+            self.assertEqual(
+                self.session.decrypt(
+                    self.session.load(workspace, name="variance")
+                ),
+                200.0 / 3.0,
+            )
+
+    def test_workspace_rejects_tampered_ciphertext(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            self.session.save(
+                self.session.encrypt([1, 2]), workspace, name="input"
+            )
+            (workspace / "ciphertexts" / "input.bin").write_bytes(b"tampered")
+            with self.assertRaisesRegex(ArtifactError, "checksum"):
+                self.session.load(workspace, name="input")
+
+    def test_workspace_rejects_unsafe_artifact_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(ArtifactError, "artifact name"):
+                self.session.save(
+                    self.session.encrypt([1]),
+                    Path(temporary) / "workspace",
+                    name="../secret",
+                )
+
+    def test_workspace_rejects_manifest_path_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            self.session.save(
+                self.session.encrypt([1, 2]), workspace, name="input"
+            )
+            manifest_path = workspace / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["ciphertexts"]["input"]["file"] = "../outside.bin"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ArtifactError, "escapes"):
+                self.session.load(workspace, name="input")
 
     def test_fides_is_not_silently_routed_to_cpu(self) -> None:
         with self.assertRaisesRegex(BackendUnavailableError, "he-sdk-fides"):

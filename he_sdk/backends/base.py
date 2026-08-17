@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Protocol, Sequence
 
 from he_sdk.capabilities import CapabilitySet
@@ -14,6 +15,7 @@ class HEBackend(Protocol):
     context_id: str
     key_bundle_id: str
     capabilities: CapabilitySet
+    has_secret_key: bool
 
     def __init__(self, config: CKKSConfig) -> None: ...
 
@@ -34,5 +36,11 @@ class HEBackend(Protocol):
     def mean(self, encrypted: Any, valid_count: int) -> Any: ...
 
     def variance(self, encrypted: Any, valid_count: int) -> Any: ...
+
+    def export_public_material(self, directory: Path) -> None: ...
+
+    def serialize_ciphertext(self, encrypted: Any, path: Path) -> None: ...
+
+    def deserialize_ciphertext(self, path: Path) -> Any: ...
 
     def close(self) -> None: ...

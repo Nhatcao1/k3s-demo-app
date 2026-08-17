@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import os
+from pathlib import Path
 from typing import Any, Sequence
 import uuid
 
-from he_sdk.backends import create_backend
+from he_sdk.backends import create_backend, create_backend_from_public_material
 from he_sdk.backends.base import HEBackend
 from he_sdk.capabilities import CapabilitySet
 from he_sdk.ciphertext import (
@@ -18,6 +20,7 @@ from he_sdk.ciphertext import (
 from he_sdk.config import CKKSConfig
 from he_sdk.errors import (
     IncompatibleCiphertextError,
+    SecretKeyUnavailableError,
     SessionClosedError,
     UnsupportedOperationError,
 )
@@ -49,6 +52,23 @@ class HESession:
     ) -> "HESession":
         """Construct a session around a compatible adapter or test backend."""
         return cls(backend, config or CKKSConfig.profile("ckks-balanced-v1"))
+
+    @classmethod
+    def open_workspace(
+        cls, path: str | os.PathLike[str]
+    ) -> "HESession":
+        """Open a compute-only session from public persisted material."""
+        from he_sdk.artifacts import workspace_open_parameters
+
+        workspace, manifest, config = workspace_open_parameters(path)
+        backend = create_backend_from_public_material(
+            str(manifest.get("backend", "")),
+            config,
+            workspace / "material",
+            context_id=str(manifest.get("context_id", "")),
+            key_bundle_id=str(manifest.get("key_bundle_id", "")),
+        )
+        return cls(backend, config)
 
     @property
     def capabilities(self) -> CapabilitySet:
@@ -161,6 +181,10 @@ class HESession:
 
     def decrypt(self, value: EncryptedValue) -> list[float] | float:
         self._owned(value)
+        if not getattr(self._backend, "has_secret_key", True):
+            raise SecretKeyUnavailableError(
+                "this compute-only session has no secret key"
+            )
         length = (
             1
             if isinstance(value, EncryptedScalar)
@@ -249,6 +273,31 @@ class HESession:
             value,
             depth_cost=OPERATION_CONTRACTS["variance"].depth_cost,
         )
+
+    def save(
+        self,
+        value: EncryptedValue,
+        workspace: str | os.PathLike[str],
+        *,
+        name: str,
+    ) -> Path:
+        """Persist one ciphertext plus secretless workspace material."""
+        self._require_open()
+        from he_sdk.artifacts import save_ciphertext
+
+        return save_ciphertext(self, value, workspace, name=name)
+
+    def load(
+        self,
+        workspace: str | os.PathLike[str],
+        *,
+        name: str,
+    ) -> EncryptedValue:
+        """Load one compatible ciphertext from an SDK workspace."""
+        self._require_open()
+        from he_sdk.artifacts import load_ciphertext
+
+        return load_ciphertext(self, workspace, name=name)
 
     def close(self) -> None:
         if self._closed:

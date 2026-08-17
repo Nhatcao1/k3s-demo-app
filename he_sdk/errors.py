@@ -21,3 +21,11 @@ class IncompatibleCiphertextError(HEError, ValueError):
 
 class SessionClosedError(HEError):
     """An operation was attempted after a session was closed."""
+
+
+class SecretKeyUnavailableError(HEError):
+    """Decryption was requested from a compute-only session."""
+
+
+class ArtifactError(HEError, ValueError):
+    """A persisted HE workspace is missing, corrupt, or incompatible."""

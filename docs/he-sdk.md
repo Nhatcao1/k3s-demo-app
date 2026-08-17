@@ -25,6 +25,10 @@ the conditions for introducing a remote backend or asynchronous job platform.
   that same file.
 - Add, subtract, multiply, square, sum, mean, and population variance are
   exposed by the local SDK.
+- `HESession.save()`, `HESession.load()`, and
+  `HESession.open_workspace()` provide a versioned, checksummed filesystem
+  handoff. The compute-only session loads public/evaluation material and
+  ciphertext but has no secret key, so the SDK rejects decryption there.
 - FIDES remains available through the existing GPU image/service. The optional
   local `he-sdk-fides` plugin source and pybind11 session are implemented. The
   non-GPU CI runner compiles it, while runtime acceptance happens after
@@ -57,6 +61,11 @@ python3 -m pip install '.[openfhe]'
 python3 examples/sdk/local_openfhe.py
 python3 -m unittest tests.test_sdk_openfhe_integration -v
 ```
+
+For the SDK-only two-kernel walkthrough, run
+`examples/notebooks/01_owner_encrypt.ipynb` and then
+`examples/notebooks/02_compute_encrypted.ipynb`. The artifact contract and
+security boundary are documented in `he-sdk-workspace.md`.
 
 Do not install CUDA, FIDESlib, or patched OpenFHE on a low-powered development
 laptop. Their native build and runtime checks belong in CI and on the T4

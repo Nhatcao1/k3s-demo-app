@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 import threading
 from typing import Any, Sequence
 import uuid
@@ -30,7 +31,7 @@ class OpenFHEBackend:
         schemes=("CKKS",),
         operations=tuple(OPERATION_CONTRACTS),
         supports_bootstrap=False,
-        supports_serialization=False,
+        supports_serialization=True,
     )
     _lease_lock = threading.Lock()
 
@@ -112,6 +113,57 @@ class OpenFHEBackend:
             raise RuntimeError("OpenFHE backend is closed")
         return self._runtime
 
+    @classmethod
+    def from_public_material(
+        cls,
+        config: CKKSConfig,
+        directory: Path,
+        *,
+        context_id: str,
+        key_bundle_id: str,
+    ) -> "OpenFHEBackend":
+        """Create a compute-only backend from an SDK workspace."""
+        try:
+            module = importlib.import_module("openfhe")
+        except (ImportError, OSError) as error:
+            raise BackendUnavailableError(
+                "OpenFHE is not installed. Install the 'openfhe' SDK extra "
+                "on supported Linux, or run this integration in GitLab CI."
+            ) from error
+
+        if config.fingerprint != CKKSConfig.profile(
+            "ckks-balanced-v1"
+        ).fingerprint:
+            raise ValueError(
+                "OpenFHE workspace requires the ckks-balanced-v1 profile"
+            )
+        if not cls._lease_lock.acquire(blocking=False):
+            raise BackendUnavailableError(
+                "Only one local OpenFHE HESession may be active per process. "
+                "The pinned binding uses process-global evaluation-key state."
+            )
+
+        backend = cls.__new__(cls)
+        backend._owns_lease = True
+        try:
+            backend.engine_version = str(
+                getattr(module, "__version__", "openfhe-1.5.1")
+            )
+            backend.context_id = context_id
+            backend.key_bundle_id = key_bundle_id
+            backend._runtime = OpenFHECPU.from_public_material(
+                module, directory
+            )
+        except BaseException:
+            backend._owns_lease = False
+            cls._lease_lock.release()
+            raise
+        return backend
+
+    @property
+    def has_secret_key(self) -> bool:
+        return self._active().has_secret_key
+
     def encrypt(self, values: Sequence[float]) -> Any:
         return self._active().encrypt(values)
 
@@ -138,6 +190,15 @@ class OpenFHEBackend:
 
     def variance(self, encrypted: Any, valid_count: int) -> Any:
         return self._active().variance(encrypted, valid_count)
+
+    def export_public_material(self, directory: Path) -> None:
+        self._active().export_public_material(directory)
+
+    def serialize_ciphertext(self, encrypted: Any, path: Path) -> None:
+        self._active().serialize_ciphertext(encrypted, path)
+
+    def deserialize_ciphertext(self, path: Path) -> Any:
+        return self._active().deserialize_ciphertext(path)
 
     def close(self) -> None:
         if not getattr(self, "_owns_lease", False):

@@ -16,6 +16,23 @@ with HESession.create(backend="openfhe") as he:
     result = he.decrypt(encrypted_result)
 ```
 
+Version 0.4 also supports an SDK-only, secretless filesystem handoff:
+
+```python
+# Owner process
+owner = HESession.create(backend="openfhe")
+encrypted = owner.encrypt([10.0, 20.0, 30.0])
+owner.save(encrypted, "./he-workspace", name="input")
+
+# Separate compute process
+with HESession.open_workspace("./he-workspace") as compute:
+    encrypted = compute.load("./he-workspace", name="input")
+    compute.save(compute.sum(encrypted), "./he-workspace", name="sum")
+```
+
+The two-kernel tutorial is under `examples/notebooks/`; see
+`docs/he-sdk-workspace.md` for the artifact and trust-boundary contract.
+
 GitLab CI builds the wheel and runs native OpenFHE integration tests. Local
 development only needs the dependency-free contract tests. The FIDES local SDK
 backend is an optional `he-sdk-fides` native plugin built by the CUDA CI path;
@@ -24,9 +41,9 @@ it is published only after its T4 equivalence gate passes. See
 The current-vs-target layer boundaries and deliberately smaller remote roadmap
 are in `docs/he-sdk-architecture.md`.
 
-Tags such as `v0.3.1` publish the wheel to public PyPI and to this project's
-private GitLab PyPI registry. See `docs/he-sdk-pypi.md` for public publishing
-and `docs/he-sdk-gitlab-registry.md` for the private fallback.
+Version tags matching `pyproject.toml` publish the wheel to public PyPI and to
+this project's private GitLab PyPI registry. See `docs/he-sdk-pypi.md` for
+public publishing and `docs/he-sdk-gitlab-registry.md` for the private fallback.
 
 The successful CPU image contains the verified wheel at
 `/opt/he-sdk-wheel/he_looming_sdk-*.whl`. The GitOps repository provides

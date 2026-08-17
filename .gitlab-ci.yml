@@ -52,6 +52,7 @@ validate-files:
     - test -f openfhe_cpu/runtime.py
     - test -f he_sdk/__init__.py
     - test -f he_sdk/session.py
+    - test -f he_sdk/artifacts.py
     - test -f he_sdk/config.py
     - test -f he_sdk/ciphertext.py
     - test -f he_sdk/operations.py
@@ -62,12 +63,17 @@ validate-files:
     - test -f compatibility/he-sdk-v1.toml
     - test -f examples/sdk/local_openfhe.py
     - test -f examples/sdk/local_fides.py
+    - test -f examples/notebooks/01_owner_encrypt.ipynb
+    - test -f examples/notebooks/02_compute_encrypted.ipynb
+    - test -f examples/notebooks/README.md
     - test -f tests/test_sdk.py
     - test -f tests/test_sdk_fides_plugin.py
     - test -f tests/test_sdk_smoke_compare.py
     - test -f tests/test_sdk_openfhe_adapter.py
     - test -f tests/test_sdk_openfhe_integration.py
+    - test -f tests/test_sdk_notebooks.py
     - test -f docs/he-sdk-architecture.md
+    - test -f docs/he-sdk-workspace.md
     - test -f docs/he-sdk-fides.md
     - test -f docs/he-sdk-gitlab-registry.md
     - test -f client/cpu_service_demo.py
@@ -117,11 +123,13 @@ test-sdk-openfhe:
         - pyproject.toml
         - compatibility/**/*
         - examples/sdk/**/*
+        - examples/notebooks/**/*
         - he_sdk/**/*
         - openfhe_cpu/**/*
         - tests/test_sdk.py
         - tests/test_sdk_openfhe_adapter.py
         - tests/test_sdk_openfhe_integration.py
+        - tests/test_sdk_notebooks.py
   script:
     - python -c 'import openfhe; print("OpenFHE integration dependency is available")'
     - python -m unittest tests.test_sdk_openfhe_integration -v

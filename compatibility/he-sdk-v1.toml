@@ -1,6 +1,6 @@
 schema_version = 1
 profile = "ckks-balanced-v1"
-sdk_version = "0.3.1"
+sdk_version = "0.4.0"
 status = "development"
 
 [python]
@@ -20,6 +20,8 @@ scaling_technique = "FLEXIBLEAUTO"
 key_switch_technique = "library-default"
 secret_key_distribution = "library-default"
 serialization = "openfhe-binary-v1"
+workspace_format = "he-sdk-workspace-v1"
+compute_workspace_decryption = false
 
 [fides]
 sdk_backend_status = "plugin-source-implemented; native T4 acceptance pending"
@@ -43,5 +45,6 @@ expected_vram = "TBD after measured SDK binding prototype"
 
 [security]
 secret_key_owner = "local HESession or trusted client only"
+secret_key_persisted_in_workspace = false
 evaluator_secret_key_allowed = false
 automatic_cpu_gpu_fallback = false
