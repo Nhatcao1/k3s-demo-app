@@ -62,6 +62,20 @@ class OpenFHESDKIntegrationTests(unittest.TestCase):
                 he.decrypt(he.variance(left)), expected_variance
             )
 
+    def test_chunked_elementwise_and_global_reductions(self) -> None:
+        # A small chunk_size exercises the exact multi-ciphertext path without
+        # making the native CI gate allocate a 20,000-value plaintext fixture.
+        values = [1.0, 2.0, 3.0, 4.0, 5.0]
+        others = [5.0, 4.0, 3.0, 2.0, 1.0]
+        with HESession.create(backend="openfhe") as he:
+            left = he.encrypt(values, chunk_size=2, alignment_id="native-rows")
+            right = he.encrypt(others, chunk_size=2, alignment_id="native-rows")
+            self.assertEqual(left.chunk_count, 3)
+            self.assert_close(he.decrypt(he.add(left, right)), [6.0] * 5)
+            self.assert_close(he.decrypt(he.sum(left)), 15.0)
+            self.assert_close(he.decrypt(he.mean(left)), 3.0)
+            self.assert_close(he.decrypt(he.variance(left)), 2.0)
+
     def test_secretless_workspace_across_processes(self) -> None:
         values = [10.0, 20.0, 30.0]
         with tempfile.TemporaryDirectory() as temporary:

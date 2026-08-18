@@ -44,7 +44,14 @@ Expected tables:
 ```text
 he_store.runs
 he_store.artifacts
+he_store.artifact_sets
+he_store.ciphertext_chunks
 ```
+
+`artifact_sets` contains the metadata for one logical encrypted vector or
+scalar. `ciphertext_chunks` stores its ordered ciphertext payloads. Writers
+must insert a complete set and change its status from `writing` to `ready` in
+one transaction; the SDK PostgreSQL repository is not implemented yet.
 
 Host-side applications can use:
 

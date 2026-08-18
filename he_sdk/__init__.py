@@ -2,6 +2,7 @@
 
 from he_sdk.capabilities import CapabilitySet
 from he_sdk.ciphertext import (
+    CiphertextChunkMetadata,
     CiphertextMetadata,
     EncryptedScalar,
     EncryptedVector,
@@ -11,6 +12,7 @@ from he_sdk.errors import (
     ArtifactError,
     BackendUnavailableError,
     HEError,
+    InsufficientLevelError,
     IncompatibleCiphertextError,
     SessionClosedError,
     SecretKeyUnavailableError,
@@ -24,11 +26,13 @@ __all__ = [
     "BackendUnavailableError",
     "CKKSConfig",
     "CapabilitySet",
+    "CiphertextChunkMetadata",
     "CiphertextMetadata",
     "EncryptedScalar",
     "EncryptedVector",
     "HEError",
     "HESession",
+    "InsufficientLevelError",
     "IncompatibleCiphertextError",
     "OPERATION_CONTRACTS",
     "OperationContract",
@@ -37,4 +41,4 @@ __all__ = [
     "UnsupportedOperationError",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0.dev0"

@@ -60,9 +60,10 @@ validate-files:
     - test -f he_sdk/backends/base.py
     - test -f he_sdk/backends/openfhe.py
     - test -f scripts/sdk/compare_smoke_results.py
-    - test -f compatibility/he-sdk-v1.toml
+    - test -f compatibility/he-sdk-v2.toml
     - test -f examples/sdk/local_openfhe.py
     - test -f examples/sdk/local_fides.py
+    - test -f examples/sdk/chunked_openfhe.py
     - test -f examples/notebooks/01_owner_encrypt.ipynb
     - test -f examples/notebooks/02_compute_encrypted.ipynb
     - test -f examples/notebooks/README.md
@@ -74,6 +75,8 @@ validate-files:
     - test -f tests/test_sdk_notebooks.py
     - test -f docs/he-sdk-architecture.md
     - test -f docs/he-sdk-workspace.md
+    - test -f docs/he-sdk-chunking.md
+    - test -f docs/he-sdk-chunking.mmd
     - test -f docs/he-sdk-fides.md
     - test -f docs/he-sdk-gitlab-registry.md
     - test -f client/cpu_service_demo.py
@@ -86,6 +89,7 @@ validate-files:
     - test -f postgres/Dockerfile
     - test -f postgres/.dockerignore
     - test -f postgres/init/001_he_store.sql
+    - test -f postgres/init/002_ciphertext_chunks.sql
     - test -f postgres/postgres.env.example
     - test -f Dockerfile.notebook
     - test -f gpu/Dockerfile
@@ -155,7 +159,7 @@ build-sdk-wheel:
     paths:
       - dist/*.whl
       - dist/SHA256SUMS
-      - compatibility/he-sdk-v1.toml
+      - compatibility/he-sdk-v2.toml
     expire_in: 60 days
 
 build-fides-sdk-wheel:

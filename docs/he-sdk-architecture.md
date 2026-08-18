@@ -111,6 +111,20 @@ một deployment path song song, có thể trở thành remote backend sau này.
 So sánh trên approximate ciphertext cần một polynomial/sign approximation,
 range contract và depth/error budget riêng; một số thiết kế còn cần bootstrap.
 
+## Delta trên feature branch chunking 0.5
+
+Stable `0.4.0` vẫn giữ nguyên trên `main`. Branch `feat/sdk-chunking-v05` thêm
+một chunk manager nhỏ ngay trong SDK core thay vì tạo execution platform mới:
+
+- `EncryptedVector` là một logical vector chứa nhiều ciphertext chunks;
+- `encrypt`, `encrypt_iter` và `encrypt_csv` chia input tự động;
+- arithmetic map theo chunk, còn sum/mean/variance reduce encrypted partials;
+- filesystem workspace v2 lưu từng chunk và vẫn đọc workspace v1;
+- PostgreSQL mới có schema chunk, chưa được quảng cáo là SDK storage backend.
+
+Chi tiết và Mermaid flow nằm trong `he-sdk-chunking.md` và
+`he-sdk-chunking.mmd`.
+
 ## Khi nào mới thêm remote/job layers
 
 ### Bước tiếp theo tối thiểu nếu cần remote

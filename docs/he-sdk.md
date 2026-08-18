@@ -25,10 +25,14 @@ the conditions for introducing a remote backend or asynchronous job platform.
   that same file.
 - Add, subtract, multiply, square, sum, mean, and population variance are
   exposed by the local SDK.
+- The `0.5.0.dev0` feature branch automatically represents a large logical
+  vector as multiple ciphertext chunks. Iterable/CSV encryption is streaming;
+  arithmetic maps chunks and reductions combine encrypted partial results.
 - `HESession.save()`, `HESession.load()`, and
   `HESession.open_workspace()` provide a versioned, checksummed filesystem
-  handoff. The compute-only session loads public/evaluation material and
-  ciphertext but has no secret key, so the SDK rejects decryption there.
+  handoff. Workspace v2 persists one binary per ciphertext chunk and still
+  reads stable workspace v1. The compute-only session loads public/evaluation
+  material and ciphertext but has no secret key, so the SDK rejects decryption.
 - FIDES remains available through the existing GPU image/service. The optional
   local `he-sdk-fides` plugin source and pybind11 session are implemented. The
   non-GPU CI runner compiles it, while runtime acceptance happens after
@@ -59,6 +63,7 @@ Run the native integration on supported Linux or in GitLab CI:
 ```sh
 python3 -m pip install '.[openfhe]'
 python3 examples/sdk/local_openfhe.py
+python3 examples/sdk/chunked_openfhe.py
 python3 -m unittest tests.test_sdk_openfhe_integration -v
 ```
 

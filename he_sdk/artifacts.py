@@ -1,4 +1,10 @@
-"""Versioned filesystem workspace for public HE material and ciphertexts."""
+"""Versioned filesystem workspace for public HE material and ciphertexts.
+
+Workspace v2 stores one manifest record for a logical value and one binary per
+ciphertext chunk.  The loader retains read/write support for v1 single-
+ciphertext workspaces so the chunking development branch can interoperate with
+artifacts produced by the stable SDK 0.4 release.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +17,8 @@ import re
 from typing import Any, TYPE_CHECKING
 
 from he_sdk.ciphertext import (
+    CiphertextChunk,
+    CiphertextChunkMetadata,
     CiphertextMetadata,
     EncryptedScalar,
     EncryptedValue,
@@ -23,7 +31,9 @@ if TYPE_CHECKING:
     from he_sdk.session import HESession
 
 
-FORMAT_VERSION = "he-sdk-workspace-v1"
+FORMAT_VERSION = "he-sdk-workspace-v2"
+LEGACY_FORMAT_VERSION = "he-sdk-workspace-v1"
+SUPPORTED_FORMAT_VERSIONS = (LEGACY_FORMAT_VERSION, FORMAT_VERSION)
 MANIFEST_NAME = "manifest.json"
 MATERIAL_FILES = (
     "context.bin",
@@ -79,7 +89,7 @@ def _read_manifest(workspace: Path) -> dict[str, Any]:
         raise ArtifactError(f"workspace manifest is unreadable: {error}") from error
     if not isinstance(manifest, dict):
         raise ArtifactError("workspace manifest must be a JSON object")
-    if manifest.get("format_version") != FORMAT_VERSION:
+    if manifest.get("format_version") not in SUPPORTED_FORMAT_VERSIONS:
         raise ArtifactError(
             f"unsupported workspace format: {manifest.get('format_version')!r}"
         )
@@ -210,6 +220,45 @@ def workspace_open_parameters(
     return workspace, manifest, config
 
 
+def _legacy_save(
+    session: "HESession",
+    value: EncryptedValue,
+    workspace: Path,
+    manifest: dict[str, Any],
+    artifact_name: str,
+) -> Path:
+    if isinstance(value, EncryptedVector):
+        if value.chunk_count != 1:
+            raise ArtifactError(
+                "chunked ciphertext requires a workspace-v2 directory"
+            )
+        handle = value._chunks[0]._handle
+    else:
+        handle = value._handle
+    target = workspace / "ciphertexts" / f"{artifact_name}.bin"
+    temporary = target.with_name(f".{target.name}.tmp")
+    session._backend.serialize_ciphertext(handle, temporary)
+    os.replace(temporary, target)
+    checksum = _sha256(target)
+    metadata = replace(value.metadata, checksum=checksum)
+    # Stable SDK 0.4 does not know the v2 chunk fields.  Omitting them keeps a
+    # v1 workspace writable by this branch and readable by the stable wheel.
+    legacy_metadata = asdict(metadata)
+    for field_name in ("chunk_size", "chunk_count", "alignment_id"):
+        legacy_metadata.pop(field_name, None)
+    ciphertexts = manifest.get("ciphertexts")
+    if not isinstance(ciphertexts, dict):
+        raise ArtifactError("workspace ciphertext index is invalid")
+    ciphertexts[artifact_name] = {
+        "file": f"ciphertexts/{target.name}",
+        "kind": "scalar" if isinstance(value, EncryptedScalar) else "vector",
+        "metadata": legacy_metadata,
+        "sha256": checksum,
+    }
+    _write_manifest(workspace, manifest)
+    return target
+
+
 def save_ciphertext(
     session: "HESession",
     value: EncryptedValue,
@@ -221,23 +270,125 @@ def save_ciphertext(
     artifact_name = _artifact_name(name)
     workspace = initialize_workspace(session, path)
     manifest = validate_workspace(session, workspace)
-    target = workspace / "ciphertexts" / f"{artifact_name}.bin"
-    temporary = target.with_name(f".{target.name}.tmp")
-    session._backend.serialize_ciphertext(value._handle, temporary)
-    os.replace(temporary, target)
-    checksum = _sha256(target)
-    metadata = replace(value.metadata, checksum=checksum)
+    if manifest.get("format_version") == LEGACY_FORMAT_VERSION:
+        return _legacy_save(session, value, workspace, manifest, artifact_name)
+
+    if isinstance(value, EncryptedVector):
+        source_chunks = tuple(
+            (chunk.metadata, chunk._handle) for chunk in value._chunks
+        )
+        kind = "vector"
+    else:
+        source_chunks = (
+            (
+                CiphertextChunkMetadata(
+                    index=0,
+                    offset=0,
+                    valid_count=1,
+                    level=value.metadata.level,
+                    scale_bits=value.metadata.scale_bits,
+                ),
+                value._handle,
+            ),
+        )
+        kind = "scalar"
+
+    # Serialize every chunk first and publish the manifest only after all files
+    # have their checksums.  A crash may leave an unreferenced file, but never a
+    # manifest that declares a partially written logical vector.
+    records: list[dict[str, Any]] = []
+    targets: list[Path] = []
+    temporaries: list[Path] = []
+    try:
+        for chunk_metadata, handle in source_chunks:
+            suffix = (
+                f".part-{chunk_metadata.index:06d}.bin"
+                if kind == "vector"
+                else ".bin"
+            )
+            target = workspace / "ciphertexts" / f"{artifact_name}{suffix}"
+            temporary = target.with_name(f".{target.name}.tmp")
+            session._backend.serialize_ciphertext(handle, temporary)
+            os.replace(temporary, target)
+            checksum = _sha256(target)
+            records.append(
+                {
+                    "file": f"ciphertexts/{target.name}",
+                    "metadata": asdict(
+                        replace(chunk_metadata, checksum=checksum)
+                    ),
+                    "sha256": checksum,
+                }
+            )
+            targets.append(target)
+            temporaries.append(temporary)
+    except BaseException:
+        for temporary in temporaries:
+            temporary.unlink(missing_ok=True)
+        raise
+
     ciphertexts = manifest.get("ciphertexts")
     if not isinstance(ciphertexts, dict):
         raise ArtifactError("workspace ciphertext index is invalid")
     ciphertexts[artifact_name] = {
-        "file": f"ciphertexts/{target.name}",
-        "kind": "scalar" if isinstance(value, EncryptedScalar) else "vector",
-        "metadata": asdict(metadata),
-        "sha256": checksum,
+        "kind": kind,
+        "metadata": asdict(value.metadata),
+        "chunks": records,
     }
     _write_manifest(workspace, manifest)
-    return target
+    return targets[0]
+
+
+def _metadata(raw: object, *, artifact_name: str) -> CiphertextMetadata:
+    if not isinstance(raw, dict):
+        raise ArtifactError(f"ciphertext metadata is invalid: {artifact_name}")
+    values = dict(raw)
+    values["logical_shape"] = tuple(values.get("logical_shape", ()))
+    try:
+        return CiphertextMetadata(**values)
+    except (TypeError, ValueError) as error:
+        raise ArtifactError(
+            f"ciphertext metadata is invalid: {artifact_name}: {error}"
+        ) from error
+
+
+def _legacy_load(
+    session: "HESession",
+    workspace: Path,
+    record: dict[str, Any],
+    artifact_name: str,
+) -> EncryptedValue:
+    target = _workspace_member(workspace, record.get("file"))
+    checksum = record.get("sha256")
+    if not target.is_file() or not isinstance(checksum, str):
+        raise ArtifactError(f"ciphertext artifact is missing: {artifact_name}")
+    if _sha256(target) != checksum:
+        raise ArtifactError(f"ciphertext artifact checksum failed: {artifact_name}")
+    metadata = _metadata(record.get("metadata"), artifact_name=artifact_name)
+    if metadata.checksum != checksum:
+        raise ArtifactError(f"ciphertext metadata checksum failed: {artifact_name}")
+    handle = session._backend.deserialize_ciphertext(target)
+    if record.get("kind") == "scalar":
+        return EncryptedScalar(metadata, handle, session._session_id)
+    if record.get("kind") == "vector":
+        upgraded = replace(
+            metadata,
+            chunk_size=metadata.valid_count,
+            chunk_count=1,
+        )
+        chunk = CiphertextChunk(
+            CiphertextChunkMetadata(
+                index=0,
+                offset=0,
+                valid_count=metadata.valid_count,
+                level=metadata.level,
+                scale_bits=metadata.scale_bits,
+                checksum=checksum,
+            ),
+            handle,
+        )
+        return EncryptedVector(upgraded, (chunk,), session._session_id)
+    raise ArtifactError(f"ciphertext kind is invalid: {artifact_name}")
 
 
 def load_ciphertext(
@@ -255,32 +406,68 @@ def load_ciphertext(
     record = ciphertexts.get(artifact_name)
     if not isinstance(record, dict):
         raise ArtifactError(f"ciphertext artifact not found: {artifact_name}")
-    target = _workspace_member(workspace, record.get("file"))
-    checksum = record.get("sha256")
-    if not target.is_file() or not isinstance(checksum, str):
-        raise ArtifactError(f"ciphertext artifact is missing: {artifact_name}")
-    if _sha256(target) != checksum:
-        raise ArtifactError(f"ciphertext checksum failed: {artifact_name}")
-    raw_metadata = record.get("metadata")
-    if not isinstance(raw_metadata, dict):
-        raise ArtifactError(f"ciphertext metadata is invalid: {artifact_name}")
-    metadata_values = dict(raw_metadata)
-    metadata_values["logical_shape"] = tuple(
-        metadata_values.get("logical_shape", ())
-    )
-    try:
-        metadata = CiphertextMetadata(**metadata_values)
-    except (TypeError, ValueError) as error:
-        raise ArtifactError(
-            f"ciphertext metadata is invalid: {artifact_name}: {error}"
-        ) from error
-    if metadata.checksum != checksum:
-        raise ArtifactError(f"ciphertext metadata checksum failed: {artifact_name}")
-    handle = session._backend.deserialize_ciphertext(target)
-    if record.get("kind") == "scalar":
-        return EncryptedScalar(metadata, handle, session._session_id)
-    if record.get("kind") == "vector":
-        return EncryptedVector(metadata, handle, session._session_id)
+    if manifest.get("format_version") == LEGACY_FORMAT_VERSION:
+        return _legacy_load(session, workspace, record, artifact_name)
+
+    metadata = _metadata(record.get("metadata"), artifact_name=artifact_name)
+    raw_chunks = record.get("chunks")
+    if not isinstance(raw_chunks, list) or not raw_chunks:
+        raise ArtifactError(f"ciphertext chunks are missing: {artifact_name}")
+    chunks: list[CiphertextChunk] = []
+    for raw_chunk in raw_chunks:
+        if not isinstance(raw_chunk, dict):
+            raise ArtifactError(f"ciphertext chunk is invalid: {artifact_name}")
+        target = _workspace_member(workspace, raw_chunk.get("file"))
+        checksum = raw_chunk.get("sha256")
+        if not target.is_file() or not isinstance(checksum, str):
+            raise ArtifactError(f"ciphertext chunk is missing: {artifact_name}")
+        if _sha256(target) != checksum:
+            raise ArtifactError(f"ciphertext chunk checksum failed: {artifact_name}")
+        raw_chunk_metadata = raw_chunk.get("metadata")
+        if not isinstance(raw_chunk_metadata, dict):
+            raise ArtifactError(
+                f"ciphertext chunk metadata is invalid: {artifact_name}"
+            )
+        try:
+            chunk_metadata = CiphertextChunkMetadata(**raw_chunk_metadata)
+        except (TypeError, ValueError) as error:
+            raise ArtifactError(
+                f"ciphertext chunk metadata is invalid: {artifact_name}: {error}"
+            ) from error
+        if chunk_metadata.checksum != checksum:
+            raise ArtifactError(
+                f"ciphertext chunk metadata checksum failed: {artifact_name}"
+            )
+        chunks.append(
+            CiphertextChunk(
+                chunk_metadata,
+                session._backend.deserialize_ciphertext(target),
+            )
+        )
+
+    kind = record.get("kind")
+    if kind == "scalar":
+        chunk_metadata = chunks[0].metadata if len(chunks) == 1 else None
+        if (
+            chunk_metadata is None
+            or metadata.valid_count != 1
+            or metadata.chunk_count != 1
+            or metadata.chunk_size != 1
+            or chunk_metadata.index != 0
+            or chunk_metadata.offset != 0
+            or chunk_metadata.valid_count != 1
+            or chunk_metadata.level != metadata.level
+            or chunk_metadata.scale_bits != metadata.scale_bits
+        ):
+            raise ArtifactError(f"encrypted scalar chunk layout is invalid: {name}")
+        return EncryptedScalar(metadata, chunks[0]._handle, session._session_id)
+    if kind == "vector":
+        try:
+            return EncryptedVector(metadata, tuple(chunks), session._session_id)
+        except ValueError as error:
+            raise ArtifactError(
+                f"ciphertext chunk layout is invalid: {artifact_name}: {error}"
+            ) from error
     raise ArtifactError(f"ciphertext kind is invalid: {artifact_name}")
 
 

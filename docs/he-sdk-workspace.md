@@ -1,7 +1,8 @@
 # SDK-only encrypted workspace
 
-Version 0.4 adds filesystem persistence for a two-process HE workflow without
-adding an HTTP client to the SDK.
+Workspace v2 adds transparent multi-ciphertext vectors to the existing
+two-process HE workflow without adding an HTTP client to the SDK. The new
+loader remains able to read stable version-0.4 workspace v1 artifacts.
 
 ```mermaid
 flowchart LR
@@ -59,16 +60,18 @@ he-workspace/
 │   ├── multiplication-keys.bin
 │   └── rotation-keys.bin
 └── ciphertexts/
-    ├── input.bin
+    ├── input.part-000000.bin
+    ├── input.part-000001.bin
     ├── sum.bin
     ├── mean.bin
     └── variance.bin
 ```
 
 `manifest.json` records the format version, complete CKKS configuration,
-context/key identities, artifact kind, logical shape, level, and SHA-256 for
-every binary file. Loading rejects incompatible sessions, unsafe names, missing
-files, and checksum changes.
+context/key identities, artifact kind, logical shape, chunk order/count,
+per-chunk valid count, level, and SHA-256 for every binary file. Loading rejects
+incompatible sessions, unsafe names, missing/reordered chunks, incomplete
+logical counts, and checksum changes.
 
 The workspace never contains plaintext or the secret key. It does reveal the
 backend, scheme, configuration, operation artifact names, and logical input

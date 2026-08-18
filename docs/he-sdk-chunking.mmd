@@ -1,0 +1,36 @@
+flowchart TD
+    INPUT["Python iterable / CSV column<br/>N logical numeric values"]
+    VALIDATE["Numeric validation<br/>finite, profile range, chunk_size <= 8192"]
+    SPLIT["Chunk manager<br/>stream up to chunk_size values"]
+
+    subgraph VECTOR["One logical EncryptedVector"]
+        C0["CiphertextChunk 0<br/>offset=0, valid_count=8192"]
+        C1["CiphertextChunk 1<br/>offset=8192, valid_count=8192"]
+        C2["CiphertextChunk 2<br/>offset=16384, valid_count=3616"]
+        META["Shared metadata<br/>total_count=20000<br/>chunk_count=3<br/>alignment_id<br/>context + key bundle"]
+    end
+
+    INPUT --> VALIDATE --> SPLIT
+    SPLIT -->|encrypt independently| C0
+    SPLIT -->|encrypt independently| C1
+    SPLIT -->|encrypt independently| C2
+    META --- C0
+    META --- C1
+    META --- C2
+
+    VECTOR --> MAP{"Operation type"}
+    MAP -->|add / subtract / multiply / square| PAIR["Map matching chunks<br/>new output chunk per input chunk"]
+    MAP -->|sum| SUMS["EvalSum each chunk<br/>add encrypted partial sums"]
+    MAP -->|mean| MEAN["global encrypted sum<br/>x Enc(1 / total_count)"]
+    MAP -->|variance| VAR["encrypted E[x^2] - E[x]^2<br/>across all chunks"]
+
+    PAIR --> OUTPUT["EncryptedVector result"]
+    SUMS --> SCALAR["EncryptedScalar result"]
+    MEAN --> SCALAR
+    VAR --> SCALAR
+
+    VECTOR --> WS[("Filesystem workspace v2<br/>manifest + one binary/chunk")]
+    WS --> LOAD["load + checksum + order + count validation"]
+    LOAD --> VECTOR
+
+    VECTOR -. "PostgreSQL adapter not implemented yet" .-> PG[("PostgreSQL schema<br/>artifact_sets + ciphertext_chunks")]

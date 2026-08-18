@@ -16,6 +16,12 @@ with HESession.create(backend="openfhe") as he:
     result = he.decrypt(encrypted_result)
 ```
 
+The isolated SDK `0.5.0.dev0` chunking branch keeps that API while allowing one
+logical vector to contain multiple ciphertexts. `encrypt()` and
+`encrypt_iter()` split at the CKKS batch size, and arithmetic plus global
+reductions hide the chunks. See `docs/he-sdk-chunking.md` and the complete
+`docs/he-sdk-chunking.mmd` flow.
+
 Version 0.4 also supports an SDK-only, secretless filesystem handoff:
 
 ```python
@@ -37,7 +43,7 @@ GitLab CI builds the wheel and runs native OpenFHE integration tests. Local
 development only needs the dependency-free contract tests. The FIDES local SDK
 backend is an optional `he-sdk-fides` native plugin built by the CUDA CI path;
 it is published only after its T4 equivalence gate passes. See
-`docs/he-sdk.md`, `docs/he-sdk-fides.md`, and `compatibility/he-sdk-v1.toml`.
+`docs/he-sdk.md`, `docs/he-sdk-fides.md`, and `compatibility/he-sdk-v2.toml`.
 The current-vs-target layer boundaries and deliberately smaller remote roadmap
 are in `docs/he-sdk-architecture.md`.
 
@@ -131,10 +137,11 @@ EvalMult keys. `sum` and `mean` use one ciphertext plus rotation keys:
 uses explicit `multiplication_keys` and `rotation_keys` fields instead of the
 legacy single `evaluation_keys` field.
 
-For data larger than one CKKS batch, the trusted client encrypts chunks, calls
-`sum` for each chunk, then combines the encrypted partial scalars with `add`.
-See `docs/he-main-api-function-matrix.md` for the complete function/key table
-and the next implementation order.
+For the separate serialized HTTP API, data larger than one CKKS batch still
+requires the trusted client to encrypt chunks, call
+`sum` for each chunk, then combine the encrypted partial scalars with `add`.
+The local SDK `0.5.0.dev0` branch handles this internally. See
+`docs/he-main-api-function-matrix.md` for the HTTP function/key table.
 
 ## GitLab pipeline
 

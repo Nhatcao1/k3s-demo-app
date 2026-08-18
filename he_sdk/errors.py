@@ -19,6 +19,10 @@ class IncompatibleCiphertextError(HEError, ValueError):
     """Ciphertexts cannot safely be used in the requested operation."""
 
 
+class InsufficientLevelError(IncompatibleCiphertextError):
+    """An operation would exceed the configured multiplicative depth."""
+
+
 class SessionClosedError(HEError):
     """An operation was attempted after a session was closed."""
 

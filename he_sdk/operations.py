@@ -37,15 +37,15 @@ OPERATION_CONTRACTS = {
     ),
     "sum": OperationContract(
         "sum", "one packed vector", "encrypted scalar", 0, False, True,
-        "single ciphertext in SDK v1",
+        "encrypted reduction across all chunks",
     ),
     "mean": OperationContract(
         "mean", "one packed vector", "encrypted scalar", 1, False, True,
-        "single ciphertext in SDK v1",
+        "global sum scaled by total logical count",
     ),
     "variance": OperationContract(
         "variance", "one packed vector", "encrypted scalar", 2, True, True,
-        "single ciphertext in SDK v1",
+        "global encrypted first and second moments",
     ),
 }
 

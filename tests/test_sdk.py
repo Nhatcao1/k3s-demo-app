@@ -15,6 +15,7 @@ from he_sdk import (
     EncryptedScalar,
     EncryptedVector,
     HESession,
+    InsufficientLevelError,
     IncompatibleCiphertextError,
     OPERATION_CONTRACTS,
     SessionClosedError,
@@ -125,13 +126,13 @@ class SDKContractTests(unittest.TestCase):
         root = Path(__file__).parents[1]
         project = tomllib.loads((root / "pyproject.toml").read_text())
         compatibility = tomllib.loads(
-            (root / "compatibility" / "he-sdk-v1.toml").read_text()
+            (root / "compatibility" / "he-sdk-v2.toml").read_text()
         )
         self.assertEqual(__version__, project["project"]["version"])
         self.assertEqual(__version__, compatibility["sdk_version"])
         self.assertEqual(
             compatibility["openfhe"]["workspace_format"],
-            "he-sdk-workspace-v1",
+            "he-sdk-workspace-v2",
         )
 
     def test_vector_functions_and_reductions(self) -> None:
@@ -170,6 +171,68 @@ class SDKContractTests(unittest.TestCase):
         self.assertEqual(metadata.valid_count, 2)
         self.assertEqual(metadata.level, 1)
         self.assertEqual(metadata.logical_shape, (2,))
+        self.assertEqual(metadata.chunk_size, 8192)
+        self.assertEqual(metadata.chunk_count, 1)
+
+    def test_encrypt_transparently_chunks_and_decrypts_large_vector(self) -> None:
+        values = [1, 2, 3, 4, 5]
+        encrypted = self.session.encrypt(values, chunk_size=2)
+
+        self.assertEqual(encrypted.chunk_count, 3)
+        self.assertEqual(encrypted.metadata.valid_count, 5)
+        self.assertEqual(encrypted.metadata.logical_shape, (5,))
+        self.assertEqual(encrypted.metadata.chunk_size, 2)
+        self.assertEqual(
+            [
+                (chunk.index, chunk.offset, chunk.valid_count)
+                for chunk in encrypted.chunks
+            ],
+            [(0, 0, 2), (1, 2, 2), (2, 4, 1)],
+        )
+        self.assertEqual(self.session.decrypt(encrypted), [1, 2, 3, 4, 5])
+
+    def test_chunked_elementwise_operations_and_global_reductions(self) -> None:
+        left_values = [1, 2, 3, 4, 5]
+        right_values = [5, 4, 3, 2, 1]
+        left = self.session.encrypt(
+            left_values, chunk_size=2, alignment_id="rows-v1"
+        )
+        right = self.session.encrypt(
+            right_values, chunk_size=2, alignment_id="rows-v1"
+        )
+
+        self.assertEqual(self.session.decrypt(self.session.add(left, right)), [6] * 5)
+        self.assertEqual(
+            self.session.decrypt(self.session.subtract(left, right)),
+            [-4, -2, 0, 2, 4],
+        )
+        self.assertEqual(
+            self.session.decrypt(self.session.multiply(left, right)),
+            [5, 8, 9, 8, 5],
+        )
+        self.assertEqual(
+            self.session.decrypt(self.session.square(left)),
+            [1, 4, 9, 16, 25],
+        )
+        self.assertEqual(self.session.decrypt(self.session.sum(left)), 15.0)
+        self.assertEqual(self.session.decrypt(self.session.mean(left)), 3.0)
+        self.assertEqual(self.session.decrypt(self.session.variance(left)), 2.0)
+
+    def test_chunked_binary_operation_rejects_alignment_mismatch(self) -> None:
+        left = self.session.encrypt([1, 2, 3], chunk_size=2, alignment_id="a")
+        right = self.session.encrypt([4, 5, 6], chunk_size=2, alignment_id="b")
+        with self.assertRaisesRegex(IncompatibleCiphertextError, "alignment"):
+            self.session.add(left, right)
+
+    def test_encrypt_csv_streams_one_numeric_column(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "values.csv"
+            source.write_text("id,amount\na,1.5\nb,2.5\nc,3.5\n", encoding="utf-8")
+            encrypted = self.session.encrypt_csv(
+                source, column="amount", chunk_size=2
+            )
+            self.assertEqual(encrypted.chunk_count, 2)
+            self.assertEqual(self.session.decrypt(encrypted), [1.5, 2.5, 3.5])
 
     def test_rejects_values_outside_profile_range(self) -> None:
         with self.assertRaisesRegex(ValueError, "values must be in"):
@@ -196,8 +259,13 @@ class SDKContractTests(unittest.TestCase):
         value = self.session.square(value)
         value = self.session.square(value)
         value = self.session.square(value)
-        with self.assertRaisesRegex(IncompatibleCiphertextError, "allows 3"):
+        with self.assertRaisesRegex(InsufficientLevelError, "allows 3"):
             self.session.square(value)
+
+    def test_capabilities_advertise_sdk_managed_chunking(self) -> None:
+        self.assertTrue(self.session.capabilities.supports_chunking)
+        self.assertTrue(self.session.capabilities.supports_streaming_input)
+        self.assertFalse(self.session.capabilities.supports_bootstrap)
 
     def test_unsupported_operation_is_explicit(self) -> None:
         self.backend.capabilities = CapabilitySet(
@@ -225,7 +293,8 @@ class SDKContractTests(unittest.TestCase):
             )
             self.assertFalse(manifest["contains_plaintext"])
             self.assertFalse(manifest["contains_secret_key"])
-            self.assertNotIn("secret", " ".join(path.name for path in workspace.rglob("*")))
+            names = " ".join(path.name for path in workspace.rglob("*"))
+            self.assertNotIn("secret", names)
 
             compute_backend = FakeBackend(has_secret_key=False)
             with mock.patch(
@@ -263,13 +332,103 @@ class SDKContractTests(unittest.TestCase):
                 200.0 / 3.0,
             )
 
+    def test_chunked_workspace_round_trip_and_global_compute(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            encrypted = self.session.encrypt(
+                range(1, 8), chunk_size=3, alignment_id="ordered-rows"
+            )
+            self.session.save(encrypted, workspace, name="input")
+
+            manifest = json.loads(
+                (workspace / "manifest.json").read_text(encoding="utf-8")
+            )
+            record = manifest["ciphertexts"]["input"]
+            self.assertEqual(manifest["format_version"], "he-sdk-workspace-v2")
+            self.assertEqual(len(record["chunks"]), 3)
+
+            loaded = self.session.load(workspace, name="input")
+            self.assertIsInstance(loaded, EncryptedVector)
+            self.assertEqual(loaded.chunk_count, 3)
+            self.assertEqual(self.session.decrypt(loaded), list(range(1, 8)))
+            self.assertEqual(self.session.decrypt(self.session.sum(loaded)), 28.0)
+
+    def test_chunked_workspace_round_trip_through_compute_only_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            encrypted = self.session.encrypt(range(1, 8), chunk_size=3)
+            self.session.save(encrypted, workspace, name="input")
+
+            compute_backend = FakeBackend(has_secret_key=False)
+            with mock.patch(
+                "he_sdk.session.create_backend_from_public_material",
+                return_value=compute_backend,
+            ):
+                with HESession.open_workspace(workspace) as compute:
+                    compute_input = compute.load(workspace, name="input")
+                    compute.save(compute.sum(compute_input), workspace, name="sum")
+                    compute.save(compute.mean(compute_input), workspace, name="mean")
+                    compute.save(
+                        compute.variance(compute_input),
+                        workspace,
+                        name="variance",
+                    )
+
+            self.assertEqual(
+                self.session.decrypt(self.session.load(workspace, name="sum")),
+                28.0,
+            )
+            self.assertEqual(
+                self.session.decrypt(self.session.load(workspace, name="mean")),
+                4.0,
+            )
+            self.assertEqual(
+                self.session.decrypt(
+                    self.session.load(workspace, name="variance")
+                ),
+                4.0,
+            )
+
+    def test_single_ciphertext_remains_writable_to_legacy_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            self.session.save(self.session.encrypt([0]), workspace, name="seed")
+            manifest_path = workspace / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["format_version"] = "he-sdk-workspace-v1"
+            manifest["ciphertexts"] = {}
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            self.session.save(
+                self.session.encrypt([1, 2, 3]), workspace, name="legacy"
+            )
+            legacy_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            metadata = legacy_manifest["ciphertexts"]["legacy"]["metadata"]
+            self.assertNotIn("chunk_size", metadata)
+            self.assertNotIn("chunk_count", metadata)
+            self.assertEqual(
+                self.session.decrypt(self.session.load(workspace, name="legacy")),
+                [1, 2, 3],
+            )
+
+            with self.assertRaisesRegex(ArtifactError, "workspace-v2"):
+                self.session.save(
+                    self.session.encrypt([1, 2, 3], chunk_size=2),
+                    workspace,
+                    name="too-large-for-v1",
+                )
+
     def test_workspace_rejects_tampered_ciphertext(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary) / "workspace"
             self.session.save(
                 self.session.encrypt([1, 2]), workspace, name="input"
             )
-            (workspace / "ciphertexts" / "input.bin").write_bytes(b"tampered")
+            manifest = json.loads(
+                (workspace / "manifest.json").read_text(encoding="utf-8")
+            )
+            relative = manifest["ciphertexts"]["input"]["chunks"][0]["file"]
+            (workspace / relative).write_bytes(b"tampered")
             with self.assertRaisesRegex(ArtifactError, "checksum"):
                 self.session.load(workspace, name="input")
 
@@ -291,9 +450,26 @@ class SDKContractTests(unittest.TestCase):
             )
             manifest_path = workspace / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["ciphertexts"]["input"]["file"] = "../outside.bin"
+            manifest["ciphertexts"]["input"]["chunks"][0]["file"] = (
+                "../outside.bin"
+            )
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaisesRegex(ArtifactError, "escapes"):
+                self.session.load(workspace, name="input")
+
+    def test_workspace_rejects_missing_or_reordered_chunk(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            self.session.save(
+                self.session.encrypt([1, 2, 3, 4, 5], chunk_size=2),
+                workspace,
+                name="input",
+            )
+            manifest_path = workspace / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["ciphertexts"]["input"]["chunks"].pop(1)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ArtifactError, "chunk layout"):
                 self.session.load(workspace, name="input")
 
     def test_fides_is_not_silently_routed_to_cpu(self) -> None:

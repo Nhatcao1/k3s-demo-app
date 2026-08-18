@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # remote server install and test the exact SDK artifact without a compiler or
 # access to the GitLab artifact API.
 COPY dist/he_looming_sdk-*.whl dist/SHA256SUMS /opt/he-sdk-wheel/
-COPY compatibility/he-sdk-v1.toml /opt/he-sdk-wheel/compatibility.toml
+COPY compatibility/he-sdk-v2.toml /opt/he-sdk-wheel/compatibility.toml
 
 COPY api ./api
 COPY backends ./backends
