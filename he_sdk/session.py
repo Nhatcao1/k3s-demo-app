@@ -20,11 +20,17 @@ from he_sdk.ciphertext import (
 from he_sdk.config import CKKSConfig
 from he_sdk.errors import (
     IncompatibleCiphertextError,
+    ResultReleaseError,
     SecretKeyUnavailableError,
     SessionClosedError,
     UnsupportedOperationError,
 )
 from he_sdk.operations import OPERATION_CONTRACTS
+from he_sdk.result_release import (
+    ALLOWED_RESULT_OPERATIONS,
+    ReleasedResult,
+    ResultRecipient,
+)
 
 
 class HESession:
@@ -254,6 +260,7 @@ class HESession:
             valid_count=1,
             level=level,
             checksum=None,
+            result_operation=operation,
         )
         return EncryptedScalar(metadata, handle, self._session_id)
 
@@ -273,6 +280,80 @@ class HESession:
             value,
             depth_cost=OPERATION_CONTRACTS["variance"].depth_cost,
         )
+
+    def create_result_recipient(self) -> ResultRecipient:
+        """Create an analyst key that is distinct from the data-owner key.
+
+        This first PRE trial keeps recipient material in memory.  A production
+        deployment must create/store the analyst secret key in an analyst-only
+        service or HSM and send only its public key to the release authority.
+        """
+        self._require_open()
+        if not self.capabilities.supports_proxy_re_encryption:
+            raise UnsupportedOperationError(
+                f"backend {self._backend.name!r} does not support proxy "
+                "re-encryption"
+            )
+        if not getattr(self._backend, "has_secret_key", True):
+            raise SecretKeyUnavailableError(
+                "a compute-only session cannot create an analyst recipient"
+            )
+        recipient_id, public_key, secret_key = (
+            self._backend.create_result_recipient()
+        )
+        return ResultRecipient(
+            recipient_id=recipient_id,
+            context_id=self._backend.context_id,
+            context_fingerprint=self.config.fingerprint,
+            session_id=self._session_id,
+            public_key=public_key,
+            secret_key=secret_key,
+            decryptor=self._backend.decrypt_for_recipient,
+        )
+
+    def release_result(
+        self,
+        value: EncryptedScalar,
+        *,
+        to: ResultRecipient,
+    ) -> ReleasedResult:
+        """Re-encrypt an approved aggregate scalar to one analyst key.
+
+        PRE itself can re-encrypt any compatible ciphertext.  These checks are
+        therefore a release-policy boundary, not a cryptographic restriction
+        on the re-encryption key.  Do not give that native key to compute.
+        """
+        self._require_open()
+        if not self.capabilities.supports_proxy_re_encryption:
+            raise UnsupportedOperationError(
+                f"backend {self._backend.name!r} does not support proxy "
+                "re-encryption"
+            )
+        if not isinstance(value, EncryptedScalar):
+            raise ResultReleaseError(
+                "only aggregate scalar results can be released to an analyst"
+            )
+        self._owned(value)
+        if not isinstance(to, ResultRecipient):
+            raise ResultReleaseError("release target must be a ResultRecipient")
+        if to._session_id != self._session_id:
+            raise IncompatibleCiphertextError(
+                "analyst recipient belongs to a different owner session"
+            )
+        operation = value.metadata.result_operation
+        if operation not in ALLOWED_RESULT_OPERATIONS:
+            raise ResultReleaseError(
+                "only sum, mean, and variance results can be released"
+            )
+        handle = self._backend.reencrypt_for_recipient(
+            value._handle, to._public_key
+        )
+        metadata = replace(
+            value.metadata,
+            key_bundle_id=to.recipient_id,
+            checksum=None,
+        )
+        return ReleasedResult(metadata, to.recipient_id, handle)
 
     def save(
         self,

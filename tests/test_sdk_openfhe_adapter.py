@@ -32,6 +32,12 @@ class OpenFHEAdapterTests(unittest.TestCase):
             runtime.encrypt.return_value = "encrypted"
             runtime.add.return_value = "added"
             runtime.decrypt.return_value = [3.0]
+            runtime.create_result_recipient.return_value = (
+                "analyst-public",
+                "analyst-secret",
+            )
+            runtime.reencrypt_for_recipient.return_value = "released"
+            runtime.decrypt_with_key.return_value = [3.0]
 
             backend = OpenFHEBackend(CKKSConfig.profile("ckks-balanced-v1"))
             try:
@@ -39,6 +45,25 @@ class OpenFHEAdapterTests(unittest.TestCase):
                 self.assertEqual(backend.add("left", "right"), "added")
                 self.assertEqual(backend.decrypt("added", 1), [3.0])
                 self.assertTrue(backend.capabilities.supports_serialization)
+                self.assertTrue(
+                    backend.capabilities.supports_proxy_re_encryption
+                )
+                recipient_id, public_key, secret_key = (
+                    backend.create_result_recipient()
+                )
+                self.assertTrue(recipient_id)
+                self.assertEqual(public_key, "analyst-public")
+                self.assertEqual(secret_key, "analyst-secret")
+                self.assertEqual(
+                    backend.reencrypt_for_recipient("sum", public_key),
+                    "released",
+                )
+                self.assertEqual(
+                    backend.decrypt_for_recipient(
+                        "released", secret_key, 1
+                    ),
+                    [3.0],
+                )
                 runtime_type.assert_called_once_with(module)
                 runtime.add.assert_called_once_with("left", "right")
             finally:

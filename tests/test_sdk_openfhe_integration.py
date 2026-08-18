@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-from he_sdk import HESession
+from he_sdk import HESession, ResultReleaseError
 
 
 OPENFHE_AVAILABLE = importlib.util.find_spec("openfhe") is not None
@@ -61,6 +61,32 @@ class OpenFHESDKIntegrationTests(unittest.TestCase):
             self.assert_close(
                 he.decrypt(he.variance(left)), expected_variance
             )
+
+    def test_result_only_proxy_re_encryption(self) -> None:
+        values = [10.0, 20.0, 30.0]
+        with HESession.create(backend="openfhe") as owner:
+            encrypted_input = owner.encrypt(values)
+            analyst = owner.create_result_recipient()
+            released = {
+                "sum": owner.release_result(
+                    owner.sum(encrypted_input), to=analyst
+                ),
+                "mean": owner.release_result(
+                    owner.mean(encrypted_input), to=analyst
+                ),
+                "variance": owner.release_result(
+                    owner.variance(encrypted_input), to=analyst
+                ),
+            }
+            self.assert_close(analyst.decrypt(released["sum"]), 60.0)
+            self.assert_close(analyst.decrypt(released["mean"]), 20.0)
+            self.assert_close(
+                analyst.decrypt(released["variance"]), 200.0 / 3.0
+            )
+            # The analyst API refuses an owner ciphertext, and its native key
+            # is different from the key that encrypted this input.
+            with self.assertRaises(ResultReleaseError):
+                analyst.decrypt(encrypted_input)  # type: ignore[arg-type]
 
     def test_secretless_workspace_across_processes(self) -> None:
         values = [10.0, 20.0, 30.0]

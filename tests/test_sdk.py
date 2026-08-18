@@ -17,6 +17,8 @@ from he_sdk import (
     HESession,
     IncompatibleCiphertextError,
     OPERATION_CONTRACTS,
+    ReleasedResult,
+    ResultReleaseError,
     SessionClosedError,
     SecretKeyUnavailableError,
     UnsupportedOperationError,
@@ -44,6 +46,7 @@ class FakeBackend:
             "variance",
         ),
         supports_serialization=True,
+        supports_proxy_re_encryption=True,
     )
 
     def __init__(self, *, has_secret_key: bool = True) -> None:
@@ -78,6 +81,31 @@ class FakeBackend:
         values = encrypted[:valid_count]
         mean = sum(values) / valid_count
         return [sum((value - mean) ** 2 for value in values) / valid_count]
+
+    def create_result_recipient(self) -> tuple[str, str, str]:
+        return "analyst-a", "analyst-public-a", "analyst-secret-a"
+
+    def reencrypt_for_recipient(
+        self, encrypted: list[float], recipient_public_key: str
+    ) -> dict[str, object]:
+        return {
+            "values": list(encrypted),
+            "recipient_public_key": recipient_public_key,
+        }
+
+    def decrypt_for_recipient(
+        self,
+        encrypted: dict[str, object],
+        recipient_secret_key: str,
+        length: int,
+    ) -> list[float]:
+        if recipient_secret_key != "analyst-secret-a":
+            raise RuntimeError("wrong analyst key")
+        if encrypted["recipient_public_key"] != "analyst-public-a":
+            raise RuntimeError("ciphertext was not released to this analyst")
+        values = encrypted["values"]
+        assert isinstance(values, list)
+        return [float(value) for value in values[:length]]
 
     def close(self) -> None:
         self.closed = True
@@ -170,6 +198,58 @@ class SDKContractTests(unittest.TestCase):
         self.assertEqual(metadata.valid_count, 2)
         self.assertEqual(metadata.level, 1)
         self.assertEqual(metadata.logical_shape, (2,))
+
+    def test_pre_releases_only_aggregate_results_to_analyst(self) -> None:
+        encrypted_input = self.session.encrypt([10, 20, 30])
+        analyst = self.session.create_result_recipient()
+
+        released_sum = self.session.release_result(
+            self.session.sum(encrypted_input), to=analyst
+        )
+        released_mean = self.session.release_result(
+            self.session.mean(encrypted_input), to=analyst
+        )
+        released_variance = self.session.release_result(
+            self.session.variance(encrypted_input), to=analyst
+        )
+
+        self.assertIsInstance(released_sum, ReleasedResult)
+        self.assertEqual(analyst.decrypt(released_sum), 60.0)
+        self.assertEqual(analyst.decrypt(released_mean), 20.0)
+        self.assertAlmostEqual(
+            analyst.decrypt(released_variance), 200.0 / 3.0
+        )
+        with self.assertRaisesRegex(ResultReleaseError, "ReleasedResult"):
+            analyst.decrypt(encrypted_input)  # type: ignore[arg-type]
+        with self.assertRaisesRegex(ResultReleaseError, "aggregate scalar"):
+            self.session.release_result(  # type: ignore[arg-type]
+                encrypted_input, to=analyst
+            )
+
+    def test_pre_rejects_compute_only_session_and_wrong_recipient(self) -> None:
+        compute = HESession.from_backend(FakeBackend(has_secret_key=False))
+        try:
+            with self.assertRaises(SecretKeyUnavailableError):
+                compute.create_result_recipient()
+        finally:
+            compute.close()
+
+        encrypted_input = self.session.encrypt([1, 2])
+        released = self.session.release_result(
+            self.session.sum(encrypted_input),
+            to=self.session.create_result_recipient(),
+        )
+        other_backend = FakeBackend()
+        other_backend.context_id = "context-b"
+        other = HESession.from_backend(other_backend)
+        try:
+            other_analyst = other.create_result_recipient()
+            with self.assertRaisesRegex(
+                IncompatibleCiphertextError, "different HE context"
+            ):
+                other_analyst.decrypt(released)
+        finally:
+            other.close()
 
     def test_rejects_values_outside_profile_range(self) -> None:
         with self.assertRaisesRegex(ValueError, "values must be in"):

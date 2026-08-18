@@ -12,6 +12,7 @@ class CapabilitySet:
     operations: tuple[str, ...]
     supports_bootstrap: bool = False
     supports_serialization: bool = False
+    supports_proxy_re_encryption: bool = False
 
     def supports(self, operation: str) -> bool:
         return operation in self.operations

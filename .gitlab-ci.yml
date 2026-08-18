@@ -56,6 +56,7 @@ validate-files:
     - test -f he_sdk/config.py
     - test -f he_sdk/ciphertext.py
     - test -f he_sdk/operations.py
+    - test -f he_sdk/result_release.py
     - test -f he_sdk/smoke.py
     - test -f he_sdk/backends/base.py
     - test -f he_sdk/backends/openfhe.py
@@ -63,6 +64,8 @@ validate-files:
     - test -f compatibility/he-sdk-v1.toml
     - test -f examples/sdk/local_openfhe.py
     - test -f examples/sdk/local_fides.py
+    - test -f examples/sdk/pre_result_only.py
+    - test -f examples/sdk/03_analyst_result_only.ipynb
     - test -f examples/notebooks/01_owner_encrypt.ipynb
     - test -f examples/notebooks/02_compute_encrypted.ipynb
     - test -f examples/notebooks/README.md
@@ -76,6 +79,8 @@ validate-files:
     - test -f docs/he-sdk-workspace.md
     - test -f docs/he-sdk-fides.md
     - test -f docs/he-sdk-gitlab-registry.md
+    - test -f docs/he-sdk-result-only-pre.md
+    - test -f docs/he-sdk-result-only-pre.mmd
     - test -f client/cpu_service_demo.py
     - test -f client/direct_openfhe_cpu_test.py
     - test -f tests/test_app.py

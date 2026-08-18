@@ -1,0 +1,23 @@
+flowchart LR
+    O["Owner notebook<br/>SK_owner + PK_owner"]
+    I["Input ciphertext<br/>encrypted to PK_owner"]
+    C["Compute notebook<br/>no secret keys"]
+    R["Encrypted scalar result<br/>sum / mean / variance"]
+    G["Isolated release boundary<br/>allowlist + audit"]
+    RK["Ephemeral PRE re-key<br/>owner → analyst"]
+    A["Analyst<br/>SK_analyst"]
+    P["Plain aggregate result"]
+
+    O -->|encrypt| I
+    I --> C
+    C -->|HE evaluation| R
+    R --> G
+    O -->|owner secret authority| G
+    A -->|analyst public key only| G
+    G -->|ReKeyGen; never export| RK
+    RK -->|ReEncrypt approved result| G
+    G -->|released ciphertext| A
+    A -->|decrypt| P
+
+    I -. "SK_analyst cannot decrypt" .-> A
+    C -. "must not receive PRE re-key" .-> RK

@@ -14,8 +14,10 @@ from he_sdk.errors import (
     IncompatibleCiphertextError,
     SessionClosedError,
     SecretKeyUnavailableError,
+    ResultReleaseError,
     UnsupportedOperationError,
 )
+from he_sdk.result_release import ReleasedResult, ResultRecipient
 from he_sdk.session import HESession
 from he_sdk.operations import OPERATION_CONTRACTS, OperationContract
 
@@ -34,7 +36,10 @@ __all__ = [
     "OperationContract",
     "SessionClosedError",
     "SecretKeyUnavailableError",
+    "ReleasedResult",
+    "ResultRecipient",
+    "ResultReleaseError",
     "UnsupportedOperationError",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.4.1.dev0"
