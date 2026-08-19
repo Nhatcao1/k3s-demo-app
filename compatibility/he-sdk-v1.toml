@@ -23,7 +23,7 @@ serialization = "openfhe-binary-v1"
 workspace_format = "he-sdk-workspace-v1"
 compute_workspace_decryption = false
 proxy_re_encryption = "OpenFHE CKKS trial; public-key and released-result artifacts"
-pre_security_mode = "library-default"
+pre_security_mode = "INDCPA trial; explicitly configured"
 recipient_public_key_format = "he-sdk-recipient-public-v1"
 released_result_kind = "released_scalar"
 

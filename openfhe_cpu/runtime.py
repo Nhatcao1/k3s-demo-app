@@ -39,6 +39,9 @@ def create_trial_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
     parameters.SetSecurityLevel(of.HEStd_128_classic)
     parameters.SetRingDim(RING_DIMENSION)
     parameters.SetBatchSize(BATCH_SIZE)
+    # OpenFHE 1.5 changed the PRE default from INDCPA to NOT_SET.  Select the
+    # trial mode explicitly so ReKeyGen/ReEncrypt receive valid parameters.
+    parameters.SetPREMode(of.INDCPA)
 
     context = of.GenCryptoContext(parameters)
     for feature in (
@@ -288,11 +291,10 @@ class OpenFHECPU:
             self._keys.secretKey,
             recipient_public_key,
         )
-        return self._context.ReEncrypt(
-            encrypted,
-            re_encryption_key,
-            recipient_public_key,
-        )
+        # IND-CPA PRE uses the two-argument overload.  Passing the optional
+        # public key selects an HRA-oriented path and caused native polynomial
+        # parameter mismatches with this CKKS context.
+        return self._context.ReEncrypt(encrypted, re_encryption_key)
 
     def decrypt_with_key(
         self, encrypted: Any, secret_key: Any, length: int

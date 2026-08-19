@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from he_sdk import BackendUnavailableError, CKKSConfig
 from he_sdk.backends.openfhe import OpenFHEBackend
+from openfhe_cpu.runtime import OpenFHECPU, create_trial_context_and_keys
 
 
 class OpenFHEAdapterTests(unittest.TestCase):
@@ -85,6 +86,34 @@ class OpenFHEAdapterTests(unittest.TestCase):
         module.ClearEvalMultKeys.assert_called_once_with()
         module.ClearEvalAutomorphismKeys.assert_called_once_with()
         module.ReleaseAllContexts.assert_called_once_with()
+
+    def test_indcpa_reencrypt_uses_two_argument_native_overload(self) -> None:
+        runtime = OpenFHECPU.__new__(OpenFHECPU)
+        runtime._context = MagicMock()
+        runtime._keys = SimpleNamespace(secretKey="owner-secret")
+        runtime._context.ReKeyGen.return_value = "owner-to-analyst-rekey"
+        runtime._context.ReEncrypt.return_value = "released"
+
+        self.assertEqual(
+            runtime.reencrypt_for_recipient("sum", "analyst-public"),
+            "released",
+        )
+        runtime._context.ReKeyGen.assert_called_once_with(
+            "owner-secret", "analyst-public"
+        )
+        runtime._context.ReEncrypt.assert_called_once_with(
+            "sum", "owner-to-analyst-rekey"
+        )
+
+    def test_trial_context_explicitly_selects_indcpa_pre(self) -> None:
+        module = MagicMock()
+        module.INDCPA = "INDCPA"
+        parameters = module.CCParamsCKKSRNS.return_value
+
+        create_trial_context_and_keys(module)
+
+        parameters.SetPREMode.assert_called_once_with("INDCPA")
+        module.GenCryptoContext.assert_called_once_with(parameters)
 
     def test_process_global_state_allows_only_one_active_session(self) -> None:
         module = self.module()

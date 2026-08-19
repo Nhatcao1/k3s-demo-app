@@ -13,6 +13,12 @@ OpenFHE supports proxy re-encryption for CKKS and exposes `ReKeyGen` and
 `ReEncrypt` in its Python binding. The SDK now uses those calls to transform an
 aggregate ciphertext from the owner key to a distinct analyst key.
 
+The `0.4.1` trial explicitly configures OpenFHE `INDCPA` PRE mode and uses the
+two-argument `ReEncrypt(ciphertext, rekey)` flow. OpenFHE 1.5 defaults PRE mode
+to `NOT_SET`; the optional third public-key argument is not used by this trial.
+IND-CPA is acceptable for validating the key flow, but it is not the final
+production security profile.
+
 PRE does **not** bind a re-encryption key to a function. Anyone who has both an
 owner ciphertext and the owner-to-analyst re-key can transform that ciphertext.
 Therefore the re-key must not be placed in the compute notebook, PostgreSQL,
