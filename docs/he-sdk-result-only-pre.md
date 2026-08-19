@@ -16,7 +16,7 @@ aggregate ciphertext from the owner key to a distinct analyst key.
 PRE does **not** bind a re-encryption key to a function. Anyone who has both an
 owner ciphertext and the owner-to-analyst re-key can transform that ciphertext.
 Therefore the re-key must not be placed in the compute notebook, PostgreSQL,
-workspace, or analyst client. Version `0.4.1.dev0` creates and consumes it
+workspace, or analyst client. Version `0.4.1` creates and consumes it
 inside `reencrypt_for_recipient()` and never returns it from the SDK.
 
 The scalar allowlist and `result_operation` metadata are release-policy checks,

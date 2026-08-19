@@ -1,7 +1,7 @@
 schema_version = 1
 profile = "ckks-balanced-v1"
-sdk_version = "0.4.1.dev0"
-status = "development"
+sdk_version = "0.4.1"
+status = "release"
 
 [python]
 minimum = "3.10"
