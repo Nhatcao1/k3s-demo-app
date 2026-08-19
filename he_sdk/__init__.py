@@ -17,7 +17,11 @@ from he_sdk.errors import (
     ResultReleaseError,
     UnsupportedOperationError,
 )
-from he_sdk.result_release import ReleasedResult, ResultRecipient
+from he_sdk.result_release import (
+    RecipientPublicKey,
+    ReleasedResult,
+    ResultRecipient,
+)
 from he_sdk.session import HESession
 from he_sdk.operations import OPERATION_CONTRACTS, OperationContract
 
@@ -37,6 +41,7 @@ __all__ = [
     "SessionClosedError",
     "SecretKeyUnavailableError",
     "ReleasedResult",
+    "RecipientPublicKey",
     "ResultRecipient",
     "ResultReleaseError",
     "UnsupportedOperationError",

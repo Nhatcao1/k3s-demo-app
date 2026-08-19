@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 import tempfile
 import tomllib
 import unittest
@@ -107,6 +108,13 @@ class FakeBackend:
         assert isinstance(values, list)
         return [float(value) for value in values[:length]]
 
+    def serialize_public_key(self, public_key: str, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(public_key, encoding="utf-8")
+
+    def deserialize_public_key(self, path: Path) -> str:
+        return path.read_text(encoding="utf-8")
+
     def close(self) -> None:
         self.closed = True
 
@@ -120,12 +128,12 @@ class FakeBackend:
         ):
             (directory / name).write_bytes(f"fake:{name}".encode())
 
-    def serialize_ciphertext(self, encrypted: list[float], path: Path) -> None:
+    def serialize_ciphertext(self, encrypted: Any, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(encrypted), encoding="utf-8")
 
-    def deserialize_ciphertext(self, path: Path) -> list[float]:
-        return [float(value) for value in json.loads(path.read_text())]
+    def deserialize_ciphertext(self, path: Path) -> Any:
+        return json.loads(path.read_text(encoding="utf-8"))
 
 
 class SDKContractTests(unittest.TestCase):
@@ -226,11 +234,11 @@ class SDKContractTests(unittest.TestCase):
                 encrypted_input, to=analyst
             )
 
-    def test_pre_rejects_compute_only_session_and_wrong_recipient(self) -> None:
+    def test_pre_allows_compute_only_recipient_and_rejects_wrong_context(self) -> None:
         compute = HESession.from_backend(FakeBackend(has_secret_key=False))
         try:
-            with self.assertRaises(SecretKeyUnavailableError):
-                compute.create_result_recipient()
+            analyst = compute.create_result_recipient()
+            self.assertEqual(analyst.recipient_id, "analyst-a")
         finally:
             compute.close()
 
@@ -250,6 +258,70 @@ class SDKContractTests(unittest.TestCase):
                 other_analyst.decrypt(released)
         finally:
             other.close()
+
+    def test_pre_public_key_and_released_result_artifact_flow(self) -> None:
+        """Analyst exports public only; owner persists only released output."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            public_key_directory = root / "analyst-public"
+            result_workspace = root / "released-results"
+            analyst_session = HESession.from_backend(
+                FakeBackend(has_secret_key=False)
+            )
+            try:
+                analyst = analyst_session.create_result_recipient()
+                analyst.save_public_key(public_key_directory)
+                public_manifest = json.loads(
+                    (
+                        public_key_directory / "recipient-public-key.json"
+                    ).read_text(encoding="utf-8")
+                )
+                self.assertFalse(public_manifest["contains_secret_key"])
+                self.assertNotIn(
+                    "secret",
+                    (public_key_directory / "recipient-public-key.bin")
+                    .read_text(encoding="utf-8"),
+                )
+
+                analyst_public_key = self.session.load_recipient_public_key(
+                    public_key_directory
+                )
+                encrypted = self.session.encrypt([10, 20, 30])
+                released = self.session.reencrypt_for_recipient(
+                    self.session.sum(encrypted), analyst_public_key
+                )
+                self.session.save(
+                    released, result_workspace, name="released_sum"
+                )
+
+                result_manifest = json.loads(
+                    (result_workspace / "manifest.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                record = result_manifest["ciphertexts"]["released_sum"]
+                self.assertEqual(record["kind"], "released_scalar")
+                self.assertEqual(record["recipient_id"], analyst.recipient_id)
+                self.assertFalse(result_manifest["contains_secret_key"])
+
+                analyst_result = analyst.load(
+                    result_workspace, name="released_sum"
+                )
+                self.assertEqual(analyst.decrypt(analyst_result), 60.0)
+                with self.assertRaisesRegex(
+                    ResultReleaseError, "ReleasedResult"
+                ):
+                    analyst.decrypt(encrypted)  # type: ignore[arg-type]
+
+                (
+                    public_key_directory / "recipient-public-key.bin"
+                ).write_text("tampered", encoding="utf-8")
+                with self.assertRaisesRegex(ArtifactError, "checksum"):
+                    self.session.load_recipient_public_key(
+                        public_key_directory
+                    )
+            finally:
+                analyst_session.close()
 
     def test_rejects_values_outside_profile_range(self) -> None:
         with self.assertRaisesRegex(ValueError, "values must be in"):

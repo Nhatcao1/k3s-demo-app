@@ -57,6 +57,7 @@ validate-files:
     - test -f he_sdk/ciphertext.py
     - test -f he_sdk/operations.py
     - test -f he_sdk/result_release.py
+    - test -f he_sdk/release_artifacts.py
     - test -f he_sdk/smoke.py
     - test -f he_sdk/backends/base.py
     - test -f he_sdk/backends/openfhe.py

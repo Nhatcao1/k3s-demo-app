@@ -211,6 +211,12 @@ class OpenFHEBackend:
             encrypted, recipient_secret_key, length
         )
 
+    def serialize_public_key(self, public_key: Any, path: Path) -> None:
+        self._active().serialize_public_key(public_key, path)
+
+    def deserialize_public_key(self, path: Path) -> Any:
+        return self._active().deserialize_public_key(path)
+
     def export_public_material(self, directory: Path) -> None:
         self._active().export_public_material(directory)
 

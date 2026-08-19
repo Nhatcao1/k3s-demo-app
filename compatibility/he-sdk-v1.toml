@@ -22,8 +22,10 @@ secret_key_distribution = "library-default"
 serialization = "openfhe-binary-v1"
 workspace_format = "he-sdk-workspace-v1"
 compute_workspace_decryption = false
-proxy_re_encryption = "OpenFHE CKKS trial; in-memory result release only"
+proxy_re_encryption = "OpenFHE CKKS trial; public-key and released-result artifacts"
 pre_security_mode = "library-default"
+recipient_public_key_format = "he-sdk-recipient-public-v1"
+released_result_kind = "released_scalar"
 
 [fides]
 sdk_backend_status = "plugin-source-implemented; native T4 acceptance pending"

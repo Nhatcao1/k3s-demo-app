@@ -9,6 +9,7 @@ compute worker: PRE keys are ciphertext-wide and are not function-bound.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from he_sdk.ciphertext import CiphertextMetadata
@@ -19,12 +20,34 @@ ALLOWED_RESULT_OPERATIONS = frozenset({"sum", "mean", "variance"})
 
 
 @dataclass(frozen=True, repr=False)
+class RecipientPublicKey:
+    """Opaque analyst public key safe to hand to the release authority."""
+
+    recipient_id: str
+    context_id: str
+    context_fingerprint: str
+    backend: str
+    engine_version: str
+    serialization_version: str
+    _handle: Any = field(repr=False, compare=False)
+
+    def __repr__(self) -> str:
+        return (
+            "RecipientPublicKey("
+            f"recipient={self.recipient_id[:8]!r}, "
+            f"context={self.context_id[:8]!r}, "
+            f"backend={self.backend!r})"
+        )
+
+
+@dataclass(frozen=True, repr=False)
 class ReleasedResult:
     """An aggregate scalar re-encrypted from the owner key to one analyst."""
 
     metadata: CiphertextMetadata
     recipient_id: str
     _handle: Any = field(repr=False, compare=False)
+    _session_id: str = field(repr=False, compare=False)
 
     def __repr__(self) -> str:
         return (
@@ -51,17 +74,27 @@ class ResultRecipient:
         context_id: str,
         context_fingerprint: str,
         session_id: str,
+        backend: str,
+        engine_version: str,
+        serialization_version: str,
         public_key: Any,
         secret_key: Any,
         decryptor: Callable[[Any, Any, int], list[float]],
+        public_key_serializer: Callable[[Any, Path], None],
+        ciphertext_deserializer: Callable[[Path], Any],
     ) -> None:
         self.recipient_id = recipient_id
         self.context_id = context_id
         self.context_fingerprint = context_fingerprint
         self._session_id = session_id
+        self.backend = backend
+        self.engine_version = engine_version
+        self.serialization_version = serialization_version
         self._public_key = public_key
         self._secret_key = secret_key
         self._decryptor = decryptor
+        self._public_key_serializer = public_key_serializer
+        self._ciphertext_deserializer = ciphertext_deserializer
 
     def __repr__(self) -> str:
         return (
@@ -69,6 +102,31 @@ class ResultRecipient:
             f"recipient={self.recipient_id[:8]!r}, "
             f"context={self.context_id[:8]!r})"
         )
+
+    @property
+    def public_key(self) -> RecipientPublicKey:
+        """Return the public-only half that may cross to the owner/releaser."""
+        return RecipientPublicKey(
+            recipient_id=self.recipient_id,
+            context_id=self.context_id,
+            context_fingerprint=self.context_fingerprint,
+            backend=self.backend,
+            engine_version=self.engine_version,
+            serialization_version=self.serialization_version,
+            _handle=self._public_key,
+        )
+
+    def save_public_key(self, path: str | Path) -> Path:
+        """Persist a checksummed public-only recipient-key artifact."""
+        from he_sdk.release_artifacts import save_recipient_public_key
+
+        return save_recipient_public_key(self, path)
+
+    def load(self, workspace: str | Path, *, name: str) -> ReleasedResult:
+        """Load one released result addressed to this analyst key."""
+        from he_sdk.release_artifacts import load_released_result
+
+        return load_released_result(self, workspace, name=name)
 
     def decrypt(self, value: ReleasedResult) -> float:
         """Decrypt one aggregate that was explicitly released to this key."""
@@ -88,6 +146,14 @@ class ResultRecipient:
         if value.metadata.context_fingerprint != self.context_fingerprint:
             raise IncompatibleCiphertextError(
                 "released result uses a different HE configuration"
+            )
+        if value.metadata.backend != self.backend:
+            raise IncompatibleCiphertextError(
+                "released result uses a different HE backend"
+            )
+        if value.metadata.serialization_version != self.serialization_version:
+            raise IncompatibleCiphertextError(
+                "released result uses a different serialization version"
             )
         if value.metadata.result_operation not in ALLOWED_RESULT_OPERATIONS:
             raise ResultReleaseError(

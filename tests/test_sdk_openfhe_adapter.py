@@ -38,6 +38,7 @@ class OpenFHEAdapterTests(unittest.TestCase):
             )
             runtime.reencrypt_for_recipient.return_value = "released"
             runtime.decrypt_with_key.return_value = [3.0]
+            runtime.deserialize_public_key.return_value = "loaded-public"
 
             backend = OpenFHEBackend(CKKSConfig.profile("ckks-balanced-v1"))
             try:
@@ -63,6 +64,18 @@ class OpenFHEAdapterTests(unittest.TestCase):
                         "released", secret_key, 1
                     ),
                     [3.0],
+                )
+                public_key_path = Path("/tmp/analyst-public.bin")
+                backend.serialize_public_key(public_key, public_key_path)
+                self.assertEqual(
+                    backend.deserialize_public_key(public_key_path),
+                    "loaded-public",
+                )
+                runtime.serialize_public_key.assert_called_once_with(
+                    public_key, public_key_path
+                )
+                runtime.deserialize_public_key.assert_called_once_with(
+                    public_key_path
                 )
                 runtime_type.assert_called_once_with(module)
                 runtime.add.assert_called_once_with("left", "right")

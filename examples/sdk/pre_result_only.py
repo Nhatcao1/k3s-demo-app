@@ -1,4 +1,7 @@
-"""Minimal in-memory CKKS PRE trial for result-only analyst access."""
+"""CKKS PRE trial with public-key handoff and persisted released results."""
+
+from pathlib import Path
+import tempfile
 
 from he_sdk import HESession, ResultReleaseError
 
@@ -6,30 +9,47 @@ from he_sdk import HESession, ResultReleaseError
 VALUES = [10.0, 20.0, 30.0]
 
 
-with HESession.create(backend="openfhe") as owner:
-    encrypted_input = owner.encrypt(VALUES)
+with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary)
+    public_key_directory = root / "analyst-public"
+    result_workspace = root / "released-results"
 
-    # This is a second OpenFHE key pair in the same CKKS context.  Its secret
-    # key cannot decrypt encrypted_input, which is under the owner's key.
-    analyst = owner.create_result_recipient()
+    with HESession.create(backend="openfhe") as owner:
+        encrypted_input = owner.encrypt(VALUES)
 
-    encrypted_results = {
-        "sum": owner.sum(encrypted_input),
-        "mean": owner.mean(encrypted_input),
-        "variance": owner.variance(encrypted_input),
-    }
+        # The analyst keeps this recipient object. Only its public half crosses
+        # to the owner/release boundary; the artifact contains no secret key.
+        analyst = owner.create_result_recipient()
+        analyst.save_public_key(public_key_directory)
+        analyst_public_key = owner.load_recipient_public_key(
+            public_key_directory
+        )
 
-    # In production this loop belongs in a separate release service.  The
-    # compute worker must never receive the owner secret or PRE re-key.
-    released_results = {
-        operation: owner.release_result(result, to=analyst)
-        for operation, result in encrypted_results.items()
-    }
+        encrypted_results = {
+            "sum": owner.sum(encrypted_input),
+            "mean": owner.mean(encrypted_input),
+            "variance": owner.variance(encrypted_input),
+        }
 
-    try:
-        analyst.decrypt(encrypted_input)  # type: ignore[arg-type]
-    except ResultReleaseError:
-        print("PASS: analyst cannot decrypt the owner input ciphertext")
+        # In production this belongs in an isolated release service. It never
+        # exports the ephemeral PRE re-key, only recipient-encrypted results.
+        for operation, owner_result in encrypted_results.items():
+            analyst_result = owner.reencrypt_for_recipient(
+                owner_result, analyst_public_key
+            )
+            owner.save(
+                analyst_result,
+                result_workspace,
+                name=f"released_{operation}",
+            )
 
-    for operation, result in released_results.items():
-        print(operation, analyst.decrypt(result))
+        try:
+            analyst.decrypt(encrypted_input)  # type: ignore[arg-type]
+        except ResultReleaseError:
+            print("PASS: analyst cannot decrypt the owner input ciphertext")
+
+        for operation in encrypted_results:
+            analyst_result = analyst.load(
+                result_workspace, name=f"released_{operation}"
+            )
+            print(operation, analyst.decrypt(analyst_result))

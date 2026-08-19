@@ -213,6 +213,22 @@ class OpenFHECPU:
             raise RuntimeError(f"could not deserialize ciphertext {path.name}")
         return encrypted
 
+    def serialize_public_key(self, public_key: Any, path: Path) -> None:
+        """Serialize an analyst public key; this never writes secret material."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._openfhe.SerializeToFile(
+            str(path), public_key, self._openfhe.BINARY
+        ):
+            raise RuntimeError(f"could not serialize public key {path.name}")
+
+    def deserialize_public_key(self, path: Path) -> Any:
+        public_key, ok = self._openfhe.DeserializePublicKey(
+            str(path), self._openfhe.BINARY
+        )
+        if not ok:
+            raise RuntimeError(f"could not deserialize public key {path.name}")
+        return public_key
+
     @staticmethod
     def _values(values: Sequence[float]) -> list[float]:
         materialized = [float(value) for value in values]
@@ -249,8 +265,9 @@ class OpenFHECPU:
         cannot decrypt owner ciphertexts; only a ciphertext transformed by
         ReEncrypt with a matching owner-to-analyst re-key can be decrypted.
         """
-        if self._keys.secretKey is None:
-            raise RuntimeError("owner secret key is required for PRE setup")
+        # KeyGen needs the shared context, not the owner's secret.  This lets
+        # an analyst create its independent recipient key pair from a
+        # secretless workspace and export only the public half to releaser.
         recipient_keys = self._context.KeyGen()
         if not recipient_keys.good():
             raise RuntimeError("could not generate analyst PRE key pair")
