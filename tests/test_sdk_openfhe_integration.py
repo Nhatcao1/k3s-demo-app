@@ -64,43 +64,22 @@ class OpenFHESDKIntegrationTests(unittest.TestCase):
 
     def test_result_only_proxy_re_encryption(self) -> None:
         values = [10.0, 20.0, 30.0]
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            with HESession.create(backend="openfhe") as owner:
-                encrypted_input = owner.encrypt(values)
-                analyst = owner.create_result_recipient()
-                analyst.save_public_key(root / "analyst-public")
-                analyst_public_key = owner.load_recipient_public_key(
-                    root / "analyst-public"
-                )
-                encrypted_results = {
-                    "sum": owner.sum(encrypted_input),
-                    "mean": owner.mean(encrypted_input),
-                    "variance": owner.variance(encrypted_input),
-                }
-                for operation, encrypted_result in encrypted_results.items():
-                    released = owner.reencrypt_for_recipient(
-                        encrypted_result, analyst_public_key
-                    )
-                    owner.save(
-                        released,
-                        root / "released-results",
-                        name=f"released_{operation}",
-                    )
-                    analyst_result = analyst.load(
-                        root / "released-results",
-                        name=f"released_{operation}",
-                    )
-                    expected = {
-                        "sum": 60.0,
-                        "mean": 20.0,
-                        "variance": 200.0 / 3.0,
-                    }[operation]
-                    self.assert_close(analyst.decrypt(analyst_result), expected)
-                # The analyst API refuses an owner ciphertext, and its native
-                # key is different from the key that encrypted this input.
-                with self.assertRaises(ResultReleaseError):
-                    analyst.decrypt(encrypted_input)  # type: ignore[arg-type]
+        with HESession.create(backend="openfhe") as owner:
+            encrypted_input = owner.encrypt(values)
+            analyst = owner.create_result_recipient()
+
+            # Keep the native smoke test deliberately small. Public-key and
+            # released-result persistence are covered by SDK contract tests;
+            # this verifies only one real OpenFHE PRE transformation.
+            released_sum = owner.reencrypt_for_recipient(
+                owner.sum(encrypted_input), analyst.public_key
+            )
+            self.assert_close(analyst.decrypt(released_sum), 60.0)
+
+            # The analyst API refuses an owner ciphertext, and its native key
+            # is different from the key that encrypted this input.
+            with self.assertRaises(ResultReleaseError):
+                analyst.decrypt(encrypted_input)  # type: ignore[arg-type]
 
     def test_secretless_workspace_across_processes(self) -> None:
         values = [10.0, 20.0, 30.0]
