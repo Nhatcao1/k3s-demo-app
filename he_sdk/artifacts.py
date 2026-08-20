@@ -145,7 +145,11 @@ def initialize_workspace(
         )
     manifest: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
-        "backend": session.capabilities.backend,
+        "backend": getattr(
+            session._backend,
+            "artifact_backend",
+            session.capabilities.backend,
+        ),
         "engine_version": session._backend.engine_version,
         "context_id": session._backend.context_id,
         "context_fingerprint": session.config.fingerprint,
@@ -172,7 +176,11 @@ def validate_workspace(
     workspace = _workspace_path(path)
     manifest = _read_manifest(workspace)
     expected = {
-        "backend": session.capabilities.backend,
+        "backend": getattr(
+            session._backend,
+            "artifact_backend",
+            session.capabilities.backend,
+        ),
         "context_id": session._backend.context_id,
         "context_fingerprint": session.config.fingerprint,
         "key_bundle_id": session._backend.key_bundle_id,
@@ -230,7 +238,12 @@ def save_ciphertext(
         if (
             metadata.context_id != session._backend.context_id
             or metadata.context_fingerprint != session.config.fingerprint
-            or metadata.backend != session._backend.name
+            or metadata.backend
+            != getattr(
+                session._backend,
+                "artifact_backend",
+                session._backend.name,
+            )
             or metadata.serialization_version
             != session.config.serialization_version
         ):

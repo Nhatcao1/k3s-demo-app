@@ -25,6 +25,10 @@ variables:
   POSTGRES_LATEST: "docker.io/dockerboi99/he_k8s:postgres-latest"
   HE_NOTEBOOK_IMAGE: "docker.io/dockerboi99/he_k8s:notebook-$CI_COMMIT_SHORT_SHA"
   HE_NOTEBOOK_LATEST: "docker.io/dockerboi99/he_k8s:notebook-latest"
+  HE_SDK_CPU_WORKER_IMAGE: "docker.io/dockerboi99/he_k8s:sdk-worker-cpu-$CI_COMMIT_SHORT_SHA"
+  HE_SDK_CPU_WORKER_LATEST: "docker.io/dockerboi99/he_k8s:sdk-worker-cpu-latest"
+  HE_SDK_GPU_WORKER_IMAGE: "docker.io/dockerboi99/he_k8s:sdk-worker-gpu-$CI_COMMIT_SHORT_SHA"
+  HE_SDK_GPU_WORKER_LATEST: "docker.io/dockerboi99/he_k8s:sdk-worker-gpu-latest"
   FIDESLIB_ARCH: "75-real"
   BUILD_JOBS: "4"
   SDK_WHEEL_DIR: "dist"
@@ -61,6 +65,10 @@ validate-files:
     - test -f he_sdk/smoke.py
     - test -f he_sdk/backends/base.py
     - test -f he_sdk/backends/openfhe.py
+    - test -f he_worker/__main__.py
+    - test -f he_worker/request.py
+    - test -f he_worker/runner.py
+    - test -f he_worker/postgres.py
     - test -f scripts/sdk/compare_smoke_results.py
     - test -f compatibility/he-sdk-v1.toml
     - test -f examples/sdk/local_openfhe.py
@@ -76,6 +84,7 @@ validate-files:
     - test -f tests/test_sdk_openfhe_adapter.py
     - test -f tests/test_sdk_openfhe_integration.py
     - test -f tests/test_sdk_notebooks.py
+    - test -f tests/test_he_worker.py
     - test -f docs/he-sdk-architecture.md
     - test -f docs/he-sdk-workspace.md
     - test -f docs/he-sdk-fides.md
@@ -93,8 +102,11 @@ validate-files:
     - test -f postgres/.dockerignore
     - test -f postgres/init/001_he_store.sql
     - test -f postgres/postgres.env.example
+    - grep -Fq 'artifacts_run_path_sha256_uidx' postgres/init/001_he_store.sql
     - test -f Dockerfile.notebook
+    - test -f Dockerfile.sdk-worker-cpu
     - test -f gpu/Dockerfile
+    - test -f gpu/Dockerfile.dockerignore
     - test -f gpu/api/app.py
     - test -f gpu/he_sdk_fides/pyproject.toml
     - test -f gpu/he_sdk_fides/CMakeLists.txt
@@ -192,8 +204,9 @@ build-fides-sdk-wheel:
     - |
       buildctl-daemonless.sh build \
         --frontend dockerfile.v0 \
-        --local context=gpu \
+        --local context=. \
         --local dockerfile=gpu \
+        --opt filename=Dockerfile \
         --opt target=sdk-wheel \
         --opt build-arg:FIDESLIB_ARCH="$FIDESLIB_ARCH" \
         --opt build-arg:BUILD_JOBS="$BUILD_JOBS" \
@@ -352,6 +365,45 @@ build-he-notebook:
         --opt filename=Dockerfile.notebook \
         --output "type=image,\"name=$HE_NOTEBOOK_IMAGE,$HE_NOTEBOOK_LATEST\",push=true"
 
+build-he-sdk-worker-cpu:
+  stage: build
+  image:
+    name: moby/buildkit:rootless
+    entrypoint: [""]
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  dependencies:
+    - build-sdk-wheel
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      changes:
+        - .gitlab-ci.yml
+        - Dockerfile.sdk-worker-cpu
+        - requirements.txt
+        - he_sdk/**/*
+        - he_worker/**/*
+        - pyproject.toml
+    # Feature branches can build an immutable trial image on demand without
+    # making the image path automatic on every commit.
+    - if: '$CI_COMMIT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      when: manual
+      allow_failure: true
+  before_script:
+    - mkdir -p "$HOME/.docker"
+    - |
+      DOCKERHUB_AUTH="$(printf '%s:%s' "$DOCKERHUB_USERNAME" "$DOCKERHUB_TOKEN" | base64 | tr -d '\n')"
+      printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
+        "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
+  script:
+    - echo "Building $HE_SDK_CPU_WORKER_IMAGE and $HE_SDK_CPU_WORKER_LATEST"
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=. \
+        --opt filename=Dockerfile.sdk-worker-cpu \
+        --output "type=image,\"name=$HE_SDK_CPU_WORKER_IMAGE,$HE_SDK_CPU_WORKER_LATEST\",push=true"
+
 build-fides-evaluator-gpu:
   stage: build
   image:
@@ -388,14 +440,63 @@ build-fides-evaluator-gpu:
     - |
       buildctl-daemonless.sh build \
         --frontend dockerfile.v0 \
-        --local context=gpu \
+        --local context=. \
         --local dockerfile=gpu \
+        --opt filename=Dockerfile \
         --opt build-arg:FIDESLIB_ARCH="$FIDESLIB_ARCH" \
         --opt build-arg:BUILD_JOBS="$BUILD_JOBS" \
         --opt build-arg:VCS_REF="$CI_COMMIT_SHA" \
         --opt build-arg:SOURCE_URL="$CI_PROJECT_URL" \
         --opt build-arg:BUILD_URL="$CI_PIPELINE_URL" \
         --output "type=image,\"name=$FIDES_GPU_IMAGE,$FIDES_GPU_LATEST\",push=true"
+
+build-he-sdk-worker-gpu:
+  stage: build
+  image:
+    name: moby/buildkit:rootless
+    entrypoint: [""]
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+    GIT_SUBMODULE_FORCE_HTTPS: "true"
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  dependencies:
+    - build-sdk-wheel
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      changes:
+        - .gitlab-ci.yml
+        - gpu/**/*
+        - he_sdk/**/*
+        - he_worker/**/*
+        - pyproject.toml
+    # Compile on a feature branch only when explicitly requested; runtime
+    # acceptance still happens in the K3s GPU Job, not on this CPU runner.
+    - if: '$CI_COMMIT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      when: manual
+      allow_failure: true
+  before_script:
+    - mkdir -p "$HOME/.docker"
+    - |
+      DOCKERHUB_AUTH="$(printf '%s:%s' "$DOCKERHUB_USERNAME" "$DOCKERHUB_TOKEN" | base64 | tr -d '\n')"
+      printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
+        "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
+  script:
+    # Compilation runs on the CPU-only runner; this image is executed and
+    # accepted only by the separate K3s Job scheduled onto an NVIDIA node.
+    - echo "Building $HE_SDK_GPU_WORKER_IMAGE and $HE_SDK_GPU_WORKER_LATEST"
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=gpu \
+        --opt filename=Dockerfile \
+        --opt target=sdk-worker \
+        --opt build-arg:FIDESLIB_ARCH="$FIDESLIB_ARCH" \
+        --opt build-arg:BUILD_JOBS="$BUILD_JOBS" \
+        --opt build-arg:VCS_REF="$CI_COMMIT_SHA" \
+        --opt build-arg:SOURCE_URL="$CI_PROJECT_URL" \
+        --opt build-arg:BUILD_URL="$CI_PIPELINE_URL" \
+        --output "type=image,\"name=$HE_SDK_GPU_WORKER_IMAGE,$HE_SDK_GPU_WORKER_LATEST\",push=true"
 
 build-postgres-storage:
   stage: build

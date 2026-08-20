@@ -33,17 +33,20 @@ flowchart LR
 `he_gpu_backend` target. The operation implementations remain in
 `gpu/worker/src/fides_backend.cpp`.
 
-The local plugin is a trusted process: its native session owns context, public
-and secret keys, encryption and decryption. This differs from the existing
-secretless HTTP evaluator, which never receives a secret key.
+The plugin now has two explicit modes:
+
+- a trusted local trial where the native session owns context and keys; and
+- a compute-only workspace mode used by Kubernetes Jobs. It reads OpenFHE
+  public/evaluation material and ciphertexts, invokes `he-gpu-worker`, and
+  never receives a secret key.
 
 ## Packages and compatibility boundary
 
 Keep these packages separate:
 
 ```text
-he_looming_sdk==0.3.1  lightweight backend-neutral core
-he-sdk-fides==0.1.0    Linux/Python/CUDA native plugin
+he_looming_sdk==0.5.0  backend-neutral core and workspace worker contract
+he-sdk-fides==0.2.0    Linux/Python/CUDA native plugin
 ```
 
 Do not install the stock `openfhe` Python wheel in the FIDES environment. The
@@ -72,12 +75,12 @@ Deploy `gpu-<CI_COMMIT_SHORT_SHA>` to the K3s T4 node for that acceptance gate.
 For a build-only artifact on `main`, manually start `build-fides-sdk-wheel`.
 The wheel is also stored under `/opt/he-sdk-fides-wheel` in the GPU image.
 
-To release version `0.1.0`, publish `he_looming_sdk==0.3.1` first because it is the
+To release version `0.2.0`, publish `he_looming_sdk==0.5.0` first because it is the
 plugin's exact core dependency. Then push:
 
 ```sh
-git tag -a fides-v0.1.0 -m "Publish he-sdk-fides 0.1.0"
-git push origin fides-v0.1.0
+git tag -a fides-v0.2.0 -m "Publish he-sdk-fides 0.2.0"
+git push origin fides-v0.2.0
 ```
 
 This release is a staging artifact until `HE_SDK_BACKEND=fides python -m
@@ -96,8 +99,8 @@ SDK_INDEX="https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/pa
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install --no-deps --index-url "$SDK_INDEX" he_looming_sdk==0.3.1
-python -m pip install --no-deps --index-url "$SDK_INDEX" he-sdk-fides==0.1.0
+python -m pip install --no-deps --index-url "$SDK_INDEX" he_looming_sdk==0.5.0
+python -m pip install --no-deps --index-url "$SDK_INDEX" he-sdk-fides==0.2.0
 ```
 
 The commands assume the deploy-token credentials are stored in `~/.netrc`.

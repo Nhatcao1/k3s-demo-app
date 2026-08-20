@@ -1,0 +1,39 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/venv/bin:$PATH
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        ca-certificates \
+        libgomp1 \
+        libomp-dev \
+        python3 \
+        python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/venv
+
+WORKDIR /app
+
+# Consume the exact wheel produced by build-sdk-wheel. Do not copy he_sdk
+# source into this image: the worker must exercise the publishable package.
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip install --no-cache-dir 'psycopg[binary]>=3.2,<4'
+
+COPY dist/he_looming_sdk-*.whl dist/SHA256SUMS /opt/he-sdk-wheel/
+RUN cd /opt/he-sdk-wheel \
+    && sha256sum -c SHA256SUMS \
+    && pip install --no-cache-dir --no-deps he_looming_sdk-*.whl
+
+COPY he_worker /app/he_worker
+
+RUN useradd --create-home --uid 10001 worker \
+    && chown -R worker:worker /app
+
+USER worker
+
+ENTRYPOINT ["python", "-m", "he_worker"]

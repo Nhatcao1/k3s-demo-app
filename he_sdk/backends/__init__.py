@@ -46,6 +46,20 @@ def create_backend_from_public_material(
             context_id=context_id,
             key_bundle_id=key_bundle_id,
         )
+    if normalized == "fides":
+        try:
+            from he_sdk_fides import FidesBackend
+        except (ImportError, OSError) as error:
+            raise BackendUnavailableError(
+                "The optional he-sdk-fides package is not installed. Install "
+                "the CUDA/Linux wheel built for the target GPU server."
+            ) from error
+        return FidesBackend.from_public_material(
+            config,
+            directory,
+            context_id=context_id,
+            key_bundle_id=key_bundle_id,
+        )
     raise ValueError(
         f"backend {name!r} does not support persisted public material"
     )

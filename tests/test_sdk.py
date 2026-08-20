@@ -415,6 +415,34 @@ class SDKContractTests(unittest.TestCase):
                 200.0 / 3.0,
             )
 
+    def test_workspace_can_select_compatible_execution_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            self.session.save(
+                self.session.encrypt([1, 2, 3]), workspace, name="input"
+            )
+            accelerated = FakeBackend(has_secret_key=False)
+            accelerated.name = "fides"
+            accelerated.artifact_backend = "fake"
+            accelerated.capabilities = CapabilitySet(
+                backend="fides",
+                schemes=("CKKS",),
+                operations=tuple(OPERATION_CONTRACTS),
+                supports_serialization=True,
+            )
+            with mock.patch(
+                "he_sdk.session.create_backend_from_public_material",
+                return_value=accelerated,
+            ) as factory:
+                with HESession.open_workspace(
+                    workspace, execution_backend="fides"
+                ) as compute:
+                    loaded = compute.load(workspace, name="input")
+                    self.assertIsInstance(loaded, EncryptedVector)
+                    self.assertEqual(compute.capabilities.backend, "fides")
+
+            self.assertEqual(factory.call_args.args[0], "fides")
+
     def test_workspace_rejects_tampered_ciphertext(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary) / "workspace"

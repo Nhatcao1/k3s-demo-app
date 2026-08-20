@@ -62,14 +62,24 @@ class HESession:
 
     @classmethod
     def open_workspace(
-        cls, path: str | os.PathLike[str]
+        cls,
+        path: str | os.PathLike[str],
+        *,
+        execution_backend: str | None = None,
     ) -> "HESession":
-        """Open a compute-only session from public persisted material."""
+        """Open a compute-only session from public persisted material.
+
+        ``execution_backend`` normally defaults to the backend that created
+        the workspace.  A compatible accelerator adapter can be selected
+        explicitly; for example, FIDES consumes the OpenFHE binary workspace
+        while preserving the artifact's original cryptographic identity.
+        """
         from he_sdk.artifacts import workspace_open_parameters
 
         workspace, manifest, config = workspace_open_parameters(path)
+        artifact_backend = str(manifest.get("backend", ""))
         backend = create_backend_from_public_material(
-            str(manifest.get("backend", "")),
+            execution_backend or artifact_backend,
             config,
             workspace / "material",
             context_id=str(manifest.get("context_id", "")),
@@ -104,7 +114,9 @@ class HESession:
             context_fingerprint=self.config.fingerprint,
             key_bundle_id=self._backend.key_bundle_id,
             scheme=self.config.scheme,
-            backend=self._backend.name,
+            backend=getattr(
+                self._backend, "artifact_backend", self._backend.name
+            ),
             engine_version=self._backend.engine_version,
             packing_layout="ckks-packed-contiguous-v1",
             valid_count=valid_count,
@@ -130,7 +142,10 @@ class HESession:
             problems.append("configuration")
         if metadata.key_bundle_id != self._backend.key_bundle_id:
             problems.append("key bundle")
-        if metadata.backend != self._backend.name:
+        artifact_backend = getattr(
+            self._backend, "artifact_backend", self._backend.name
+        )
+        if metadata.backend != artifact_backend:
             problems.append("backend")
         if metadata.scheme != self.config.scheme:
             problems.append("scheme")
