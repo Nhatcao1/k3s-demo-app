@@ -1,0 +1,35 @@
+C4Component
+    title HE SDK v0.4.1 - Functions and Development Components
+
+    Person(developer, "Python developer", "Installs the wheel and calls the SDK public API")
+
+    Container_Boundary(sdk, "he_looming_sdk Python package") {
+        Component(api, "HESession public API", "Python", "encrypt, decrypt, add, subtract, multiply, square, sum, mean, variance, save and load")
+        Component(values, "Encrypted value contract", "Python types", "EncryptedVector, EncryptedScalar and compatibility metadata")
+        Component(guards, "Contracts and guardrails", "Python", "Validates shape, context, key bundle, backend, level, input range and supported capabilities")
+        Component(artifacts, "Artifact support", "Python", "Serializes and validates secretless filesystem workspaces")
+        Component(release, "Result release support", "Python", "Releases approved aggregate scalars to a separate analyst key")
+        Component(port, "Backend port", "Python protocol", "Backend-neutral operation and serialization contract")
+        Component(wrapper, "OpenFHE wrapper", "Black box", "Executes CKKS operations; native implementation details are intentionally hidden")
+        Component(tests, "Contract and integration tests", "unittest", "Checks public functions, compatibility, serialization and the native smoke path")
+    }
+
+    System_Ext(workspace, "Filesystem workspace", "Optional storage used by save, load and compute-only handoff")
+    System_Ext(ci, "GitLab CI", "Builds and verifies the Python wheel on the server runner")
+    System_Ext(registry, "Python package registry", "PyPI or GitLab Package Registry")
+
+    Rel(developer, api, "Imports he_sdk and calls")
+    Rel(api, values, "Creates and accepts")
+    Rel(api, guards, "Validates every operation with")
+    Rel(api, artifacts, "Delegates save/load to")
+    Rel(api, release, "Delegates result release to")
+    Rel(guards, port, "Allows compatible calls to")
+    Rel(artifacts, port, "Uses serialization from")
+    Rel(release, port, "Uses key conversion through")
+    Rel(port, wrapper, "Calls", "Opaque wrapper interface")
+    Rel(artifacts, workspace, "Reads and writes", "Versioned binary artifacts + manifest")
+    Rel(tests, api, "Tests public behavior of")
+    Rel(tests, port, "Tests backend contract of")
+    Rel(tests, wrapper, "Runs minimal native smoke against")
+    Rel(ci, tests, "Runs")
+    Rel(ci, registry, "Publishes verified wheel to")
