@@ -25,6 +25,8 @@ variables:
   POSTGRES_LATEST: "docker.io/dockerboi99/he_k8s:postgres-latest"
   HE_NOTEBOOK_IMAGE: "docker.io/dockerboi99/he_k8s:notebook-$CI_COMMIT_SHORT_SHA"
   HE_NOTEBOOK_LATEST: "docker.io/dockerboi99/he_k8s:notebook-latest"
+  HE_GPU_NOTEBOOK_IMAGE: "docker.io/dockerboi99/he_k8s:notebook-gpu-$CI_COMMIT_SHORT_SHA"
+  HE_GPU_NOTEBOOK_LATEST: "docker.io/dockerboi99/he_k8s:notebook-gpu-latest"
   HE_SDK_CPU_WORKER_IMAGE: "docker.io/dockerboi99/he_k8s:sdk-worker-cpu-$CI_COMMIT_SHORT_SHA"
   HE_SDK_CPU_WORKER_LATEST: "docker.io/dockerboi99/he_k8s:sdk-worker-cpu-latest"
   HE_SDK_GPU_WORKER_IMAGE: "docker.io/dockerboi99/he_k8s:sdk-worker-gpu-$CI_COMMIT_SHORT_SHA"
@@ -107,6 +109,8 @@ validate-files:
     - test -f Dockerfile.sdk-worker-cpu
     - test -f gpu/Dockerfile
     - test -f gpu/Dockerfile.dockerignore
+    - grep -Fq 'FROM builder AS sdk-notebook' gpu/Dockerfile
+    - grep -Fq 'build-he-notebook-gpu:' .gitlab-ci.yml
     - test -f gpu/api/app.py
     - test -f gpu/he_sdk_fides/pyproject.toml
     - test -f gpu/he_sdk_fides/CMakeLists.txt
@@ -364,6 +368,51 @@ build-he-notebook:
         --local dockerfile=. \
         --opt filename=Dockerfile.notebook \
         --output "type=image,\"name=$HE_NOTEBOOK_IMAGE,$HE_NOTEBOOK_LATEST\",push=true"
+
+build-he-notebook-gpu:
+  stage: build
+  image:
+    name: moby/buildkit:rootless
+    entrypoint: [""]
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+    GIT_SUBMODULE_FORCE_HTTPS: "true"
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  dependencies:
+    - build-sdk-wheel
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      changes:
+        - .gitlab-ci.yml
+        - gpu/**/*
+        - he_sdk/**/*
+        - pyproject.toml
+    # A CPU-only runner can compile this CUDA image on a feature branch. The
+    # first real FIDES operation is intentionally deferred to the K3s T4 Pod.
+    - if: '$CI_COMMIT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      when: manual
+      allow_failure: true
+  before_script:
+    - mkdir -p "$HOME/.docker"
+    - |
+      DOCKERHUB_AUTH="$(printf '%s:%s' "$DOCKERHUB_USERNAME" "$DOCKERHUB_TOKEN" | base64 | tr -d '\n')"
+      printf '{"auths":{"https://index.docker.io/v1/":{"auth":"%s"}}}' \
+        "$DOCKERHUB_AUTH" > "$HOME/.docker/config.json"
+  script:
+    - echo "Building $HE_GPU_NOTEBOOK_IMAGE and $HE_GPU_NOTEBOOK_LATEST without GPU execution on the CI runner"
+    - |
+      buildctl-daemonless.sh build \
+        --frontend dockerfile.v0 \
+        --local context=. \
+        --local dockerfile=gpu \
+        --opt filename=Dockerfile \
+        --opt target=sdk-notebook \
+        --opt build-arg:FIDESLIB_ARCH="$FIDESLIB_ARCH" \
+        --opt build-arg:BUILD_JOBS="$BUILD_JOBS" \
+        --opt build-arg:VCS_REF="$CI_COMMIT_SHA" \
+        --opt build-arg:SOURCE_URL="$CI_PROJECT_URL" \
+        --opt build-arg:BUILD_URL="$CI_PIPELINE_URL" \
+        --output "type=image,\"name=$HE_GPU_NOTEBOOK_IMAGE,$HE_GPU_NOTEBOOK_LATEST\",push=true"
 
 build-he-sdk-worker-cpu:
   stage: build
