@@ -12,7 +12,7 @@ flowchart TD
 
     subgraph SDK["he-sdk package"]
         API["2. Public API<br/>HESession + encrypted value types"]
-        CORE["3. Contracts & guardrails<br/>config + operations + capabilities + validation"]
+        CORE["3. Contracts & guardrails<br/>config + contracts + validation"]
         PORT["4. Backend port & adapters<br/>HEBackend + OpenFHEBackend"]
     end
 
@@ -35,8 +35,8 @@ flowchart TD
 |---|---|---|
 | 1. Consumer | `examples/sdk/local_openfhe.py`, application code của người dùng | Chuẩn bị plaintext, gọi SDK và giải mã trong trust boundary của client. Notebook, Data Studio hay workflow engine là integration của consumer, không phải code SDK. |
 | 2. Public SDK API | `HESession`, `EncryptedVector`, `EncryptedScalar` | Đã có local API cho `encrypt`, `decrypt`, `add`, `subtract`, `multiply`, `square`, `sum`, `mean`, `variance`, cùng `save`, `load`, `open_workspace` cho filesystem handoff. Raw OpenFHE object được giữ trong opaque handle. Chưa có `compare` và chưa có lựa chọn remote. |
-| 3. Contracts & guardrails | `CKKSConfig`, `OperationContract`, `CapabilitySet`, `CiphertextMetadata`; validation trong `HESession` | Đã kiểm tra input range/shape, session, context fingerprint, key bundle, backend, scheme, serialization version và depth budget. Đây là vài module/dataclass nhỏ, chưa phải execution planner hay compatibility service độc lập. |
-| 4. Backend port & adapter | `HEBackend`, `OpenFHEBackend`, `openfhe_cpu/runtime.py`, optional `he-sdk-fides` plugin | `HESession` dispatch trực tiếp tới backend được chọn. OpenFHE local đã ổn định; FIDES native plugin source đã implement nhưng chỉ được support sau T4 build/equivalence gate. HEIR adapter không tồn tại. Không auto-route CPU/GPU và không fallback âm thầm. |
+| 3. Contracts & guardrails | `CKKSConfig`; `OperationContract` và `CapabilitySet` trong `he_sdk/contracts.py`; `CiphertextMetadata`; validation trong `HESession` | Đã kiểm tra input range/shape, session, context fingerprint, key bundle, backend, scheme, serialization version và depth budget. Đây là vài dataclass nhỏ, chưa phải execution planner hay compatibility service độc lập. |
+| 4. Backend port & adapter | `HEBackend` cùng factory trong `he_sdk/backends/base.py`; `OpenFHEBackend`, `openfhe_cpu/runtime.py`, optional `he-sdk-fides` plugin | `HESession` dispatch trực tiếp tới backend được chọn. OpenFHE local đã ổn định; FIDES native plugin source đã implement nhưng chỉ được support sau T4 build/equivalence gate. HEIR adapter không tồn tại. Không auto-route CPU/GPU và không fallback âm thầm. |
 
 Một số tên hiện nghe mạnh hơn implementation thực tế:
 

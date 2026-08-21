@@ -1,12 +1,16 @@
 """Local, backend-neutral homomorphic-encryption SDK."""
 
-from he_sdk.capabilities import CapabilitySet
 from he_sdk.ciphertext import (
     CiphertextMetadata,
     EncryptedScalar,
     EncryptedVector,
 )
 from he_sdk.config import CKKSConfig
+from he_sdk.contracts import (
+    CapabilitySet,
+    OPERATION_CONTRACTS,
+    OperationContract,
+)
 from he_sdk.errors import (
     ArtifactError,
     BackendUnavailableError,
@@ -23,8 +27,6 @@ from he_sdk.result_release import (
     ResultRecipient,
 )
 from he_sdk.session import HESession
-from he_sdk.operations import OPERATION_CONTRACTS, OperationContract
-
 __all__ = [
     "ArtifactError",
     "BackendUnavailableError",

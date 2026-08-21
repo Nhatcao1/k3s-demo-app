@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Any, Sequence
 import uuid
 
-from he_sdk.backends import create_backend, create_backend_from_public_material
-from he_sdk.backends.base import HEBackend
-from he_sdk.capabilities import CapabilitySet
+from he_sdk.backends import (
+    HEBackend,
+    create_backend,
+    create_backend_from_public_material,
+)
 from he_sdk.ciphertext import (
     CiphertextMetadata,
     EncryptedScalar,
@@ -18,6 +20,7 @@ from he_sdk.ciphertext import (
     EncryptedVector,
 )
 from he_sdk.config import CKKSConfig
+from he_sdk.contracts import CapabilitySet, OPERATION_CONTRACTS
 from he_sdk.errors import (
     IncompatibleCiphertextError,
     ResultReleaseError,
@@ -25,7 +28,6 @@ from he_sdk.errors import (
     SessionClosedError,
     UnsupportedOperationError,
 )
-from he_sdk.operations import OPERATION_CONTRACTS
 from he_sdk.result_release import (
     ALLOWED_RESULT_OPERATIONS,
     RecipientPublicKey,

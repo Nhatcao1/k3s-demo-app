@@ -1,4 +1,4 @@
-"""SDK-level contracts for operation names shared with the K3s service."""
+"""Operation requirements and backend capability declarations."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from common.operations import OPERATIONS
 
 @dataclass(frozen=True)
 class OperationContract:
+    """Static requirements shared by every implementation of an operation."""
+
     name: str
     inputs: str
     output: str
@@ -53,3 +55,25 @@ if tuple(OPERATION_CONTRACTS) != OPERATIONS:
     raise RuntimeError(
         "SDK operation contracts must match common.operations.OPERATIONS"
     )
+
+
+@dataclass(frozen=True)
+class CapabilitySet:
+    """Features and operation contracts exposed by one backend."""
+
+    backend: str
+    schemes: tuple[str, ...]
+    operations: tuple[str, ...]
+    supports_bootstrap: bool = False
+    supports_serialization: bool = False
+    supports_proxy_re_encryption: bool = False
+
+    def supports(self, operation: str) -> bool:
+        return operation in self.operations
+
+
+__all__ = [
+    "CapabilitySet",
+    "OPERATION_CONTRACTS",
+    "OperationContract",
+]

@@ -11,14 +11,13 @@ import tempfile
 from typing import Any, Sequence
 import uuid
 
-from he_sdk.capabilities import CapabilitySet
 from he_sdk.config import CKKSConfig
+from he_sdk.contracts import CapabilitySet, OPERATION_CONTRACTS
 from he_sdk.errors import (
     BackendUnavailableError,
     SecretKeyUnavailableError,
     UnsupportedOperationError,
 )
-from he_sdk.operations import OPERATION_CONTRACTS
 
 
 class FidesBackend:

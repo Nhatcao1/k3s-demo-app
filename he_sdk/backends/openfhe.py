@@ -8,10 +8,9 @@ import threading
 from typing import Any, Sequence
 import uuid
 
-from he_sdk.capabilities import CapabilitySet
 from he_sdk.config import CKKSConfig
+from he_sdk.contracts import CapabilitySet, OPERATION_CONTRACTS
 from he_sdk.errors import BackendUnavailableError
-from he_sdk.operations import OPERATION_CONTRACTS
 from openfhe_cpu.runtime import (
     BATCH_SIZE,
     FIRST_MOD_SIZE,
