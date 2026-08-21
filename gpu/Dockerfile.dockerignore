@@ -1,0 +1,17 @@
+**
+!gpu/
+!gpu/Dockerfile
+!gpu/api/
+!gpu/api/**
+!gpu/he_sdk_fides/
+!gpu/he_sdk_fides/**
+!gpu/third_party/
+!gpu/third_party/FIDESlib/
+!gpu/third_party/FIDESlib/**
+!gpu/worker/
+!gpu/worker/**
+!dist/
+!dist/*.whl
+!dist/SHA256SUMS
+!he_worker/
+!he_worker/**

@@ -8,10 +8,9 @@ import threading
 from typing import Any, Sequence
 import uuid
 
-from he_sdk.capabilities import CapabilitySet
 from he_sdk.config import CKKSConfig
+from he_sdk.contracts import CapabilitySet, OPERATION_CONTRACTS
 from he_sdk.errors import BackendUnavailableError
-from he_sdk.operations import OPERATION_CONTRACTS
 from openfhe_cpu.runtime import (
     BATCH_SIZE,
     FIRST_MOD_SIZE,
@@ -32,6 +31,7 @@ class OpenFHEBackend:
         operations=tuple(OPERATION_CONTRACTS),
         supports_bootstrap=False,
         supports_serialization=True,
+        supports_proxy_re_encryption=True,
     )
     _lease_lock = threading.Lock()
 
@@ -190,6 +190,31 @@ class OpenFHEBackend:
 
     def variance(self, encrypted: Any, valid_count: int) -> Any:
         return self._active().variance(encrypted, valid_count)
+
+    def create_result_recipient(self) -> tuple[str, Any, Any]:
+        """Generate a second key pair in the owner's CKKS context."""
+        public_key, secret_key = self._active().create_result_recipient()
+        return uuid.uuid4().hex, public_key, secret_key
+
+    def reencrypt_for_recipient(
+        self, encrypted: Any, recipient_public_key: Any
+    ) -> Any:
+        return self._active().reencrypt_for_recipient(
+            encrypted, recipient_public_key
+        )
+
+    def decrypt_for_recipient(
+        self, encrypted: Any, recipient_secret_key: Any, length: int
+    ) -> list[float]:
+        return self._active().decrypt_with_key(
+            encrypted, recipient_secret_key, length
+        )
+
+    def serialize_public_key(self, public_key: Any, path: Path) -> None:
+        self._active().serialize_public_key(public_key, path)
+
+    def deserialize_public_key(self, path: Path) -> Any:
+        return self._active().deserialize_public_key(path)
 
     def export_public_material(self, directory: Path) -> None:
         self._active().export_public_material(directory)

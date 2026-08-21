@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -157,6 +159,79 @@ class FidesPluginAdapterTests(unittest.TestCase):
             ),
         ):
             self.module.FidesBackend(CKKSConfig.profile("ckks-balanced-v1"))
+
+    def test_compute_only_workspace_invokes_native_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            material = root / "material"
+            material.mkdir()
+            for name in (
+                "context.bin",
+                "public-key.bin",
+                "multiplication-keys.bin",
+                "rotation-keys.bin",
+            ):
+                (material / name).write_bytes(name.encode())
+            worker = root / "he-gpu-worker"
+            worker.write_text("fake", encoding="utf-8")
+            worker.chmod(0o700)
+            commands: list[list[str]] = []
+
+            def run(command: list[str], **_: object):
+                commands.append(command)
+                output = Path(command[command.index("--output") + 1])
+                output.write_bytes(b"gpu-result")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with (
+                patch.dict(
+                    self.module.os.environ,
+                    {"HE_GPU_WORKER": str(worker)},
+                ),
+                patch.object(self.module.subprocess, "run", side_effect=run),
+            ):
+                backend = self.module.FidesBackend.from_public_material(
+                    CKKSConfig.profile("ckks-balanced-v1"),
+                    material,
+                    context_id="context-a",
+                    key_bundle_id="keys-a",
+                )
+                self.assertTrue(backend.capabilities.supports_serialization)
+                self.assertEqual(backend.artifact_backend, "openfhe")
+                self.assertFalse(backend.has_secret_key)
+                result = backend.variance(b"ciphertext", 4)
+
+            self.assertEqual(result, b"gpu-result")
+            command = commands[0]
+            self.assertIn("--multiplication-keys", command)
+            self.assertIn("--rotation-keys", command)
+            self.assertEqual(command[command.index("--valid-count") + 1], "4")
+
+    def test_compute_only_workspace_requires_executable_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            material = Path(temporary)
+            for name in (
+                "context.bin",
+                "public-key.bin",
+                "multiplication-keys.bin",
+                "rotation-keys.bin",
+            ):
+                (material / name).write_bytes(name.encode())
+            with (
+                patch.dict(
+                    self.module.os.environ,
+                    {"HE_GPU_WORKER": str(material / "missing-worker")},
+                ),
+                self.assertRaisesRegex(
+                    BackendUnavailableError, "not executable"
+                ),
+            ):
+                self.module.FidesBackend.from_public_material(
+                    CKKSConfig.profile("ckks-balanced-v1"),
+                    material,
+                    context_id="context-a",
+                    key_bundle_id="keys-a",
+                )
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # This image contains only FIDESlib and its matching patched OpenFHE. The
 # standard openfhe-python dependency used by the CPU image is not copied here.
-COPY third_party/FIDESlib /src/FIDESlib
+COPY gpu/third_party/FIDESlib /src/FIDESlib
 
 RUN patch \
       --directory=/src/FIDESlib/deps/openfhe-src \
@@ -77,8 +77,8 @@ RUN set -eux; \
         "/usr/local/bin/fides-${example}"; \
     done
 
-COPY worker /src/worker
-COPY he_sdk_fides /src/he_sdk_fides
+COPY gpu/worker /src/worker
+COPY gpu/he_sdk_fides /src/he_sdk_fides
 
 RUN cmake \
       -S /src/worker \
@@ -103,6 +103,87 @@ RUN CMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
 FROM scratch AS sdk-wheel
 COPY --from=builder /opt/he-sdk-fides-wheel/ /
 
+FROM builder AS sdk-worker
+
+ARG VCS_REF=unknown
+ARG SOURCE_URL=unknown
+ARG BUILD_URL=unknown
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/venv/bin:$PATH \
+    HE_GPU_WORKER=/src/worker/build/he-gpu-worker \
+    HE_GPU_DEVICE=0
+
+WORKDIR /app
+
+# The accelerator image consumes the same core wheel as the CPU worker plus
+# the CUDA plugin wheel built with this image's patched OpenFHE/FIDES toolchain.
+COPY dist/he_looming_sdk-*.whl dist/SHA256SUMS /opt/he-sdk-wheel/
+COPY he_worker /app/he_worker
+RUN python3 -m venv /opt/venv \
+    && cd /opt/he-sdk-wheel \
+    && sha256sum -c SHA256SUMS \
+    && /opt/venv/bin/pip install --no-cache-dir --no-deps \
+        he_looming_sdk-*.whl \
+        /opt/he-sdk-fides-wheel/he_sdk_fides-*.whl \
+    && /opt/venv/bin/pip install --no-cache-dir 'psycopg[binary]>=3.2,<4' \
+    && /opt/venv/bin/python -c \
+        'from he_sdk import HESession; from he_sdk_fides import FidesBackend; print("HE GPU worker runtime ready")'
+
+RUN useradd --create-home --uid 10001 worker \
+    && chown -R worker:worker /app
+
+LABEL org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.url="${BUILD_URL}"
+
+USER worker
+
+ENTRYPOINT ["python", "-m", "he_worker"]
+
+# Interactive GPU SDK image. GitLab only compiles and packages this target;
+# it deliberately does not create a FIDES session because the self-hosted CI
+# runner has no GPU. The K3s Notebook Pod performs the real CUDA acceptance
+# check before JupyterLab starts.
+FROM builder AS sdk-notebook
+
+ARG VCS_REF=unknown
+ARG SOURCE_URL=unknown
+ARG BUILD_URL=unknown
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/venv/bin:$PATH \
+    HE_NOTEBOOK_BACKEND=fides \
+    HE_GPU_DEVICE=0
+
+WORKDIR /workspace
+
+COPY dist/he_looming_sdk-*.whl dist/SHA256SUMS /opt/he-sdk-wheel/
+RUN python3 -m venv /opt/venv \
+    && cd /opt/he-sdk-wheel \
+    && sha256sum -c SHA256SUMS \
+    && /opt/venv/bin/pip install --no-cache-dir --no-deps \
+        he_looming_sdk-*.whl \
+        /opt/he-sdk-fides-wheel/he_sdk_fides-*.whl \
+    && /opt/venv/bin/pip install --no-cache-dir 'jupyterlab>=4,<5' \
+    && /opt/venv/bin/python -c \
+        'from he_sdk import HESession; from he_sdk_fides import FidesBackend; print("HE GPU notebook packages ready; CUDA runtime test deferred to K3s")'
+
+RUN useradd --create-home --uid 10001 notebook \
+    && chown notebook:notebook /workspace
+
+LABEL org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.source="${SOURCE_URL}" \
+      org.opencontainers.image.url="${BUILD_URL}"
+
+USER notebook
+
+EXPOSE 8888
+
+CMD ["python", "-m", "jupyterlab", "--no-browser", "--ip=0.0.0.0", "--port=8888", "--ServerApp.root_dir=/workspace"]
+
 FROM builder AS runtime
 
 ARG VCS_REF=unknown
@@ -110,7 +191,7 @@ ARG SOURCE_URL=unknown
 ARG BUILD_URL=unknown
 
 WORKDIR /app
-COPY api /app/api
+COPY gpu/api /app/api
 
 # Preserve the exact source and pipeline that produced a runtime image. These
 # labels make a failure from the GPU cluster traceable to one GitLab commit.

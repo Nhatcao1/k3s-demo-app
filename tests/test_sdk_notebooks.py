@@ -7,6 +7,12 @@ import unittest
 
 
 NOTEBOOK_DIRECTORY = Path(__file__).parents[1] / "examples" / "notebooks"
+PRE_NOTEBOOK = (
+    Path(__file__).parents[1]
+    / "examples"
+    / "sdk"
+    / "03_analyst_result_only.ipynb"
+)
 REQUIRED_HEADINGS = (
     "## Goal",
     "## Setup",
@@ -57,6 +63,21 @@ class SDKNotebookTests(unittest.TestCase):
         self.assertNotIn("urllib", code)
         self.assertNotIn("requests", code)
         self.assertNotIn("openfhe", code)
+
+    def test_pre_notebook_is_valid_and_uses_result_release_api(self) -> None:
+        notebook = json.loads(PRE_NOTEBOOK.read_text(encoding="utf-8"))
+        self.assertEqual(notebook["nbformat"], 4)
+        code = "\n".join(
+            "".join(cell["source"])
+            for cell in notebook["cells"]
+            if cell["cell_type"] == "code"
+        )
+        ast.parse(code, filename=str(PRE_NOTEBOOK))
+        self.assertIn("create_result_recipient", code)
+        self.assertIn("release_result", code)
+        self.assertIn("analyst.decrypt(encrypted_input)", code)
+        self.assertNotIn("ReKeyGen", code)
+        self.assertNotIn("ReEncrypt", code)
 
 
 if __name__ == "__main__":

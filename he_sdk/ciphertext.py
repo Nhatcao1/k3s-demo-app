@@ -21,6 +21,10 @@ class CiphertextMetadata:
     scale_bits: int
     serialization_version: str
     checksum: str | None = None
+    # Set only for SDK reductions.  The result-release boundary uses this
+    # provenance marker to allow aggregate scalars and reject input vectors.
+    # It is an application policy marker, not a cryptographic proof.
+    result_operation: str | None = None
 
 
 @dataclass(frozen=True, repr=False)

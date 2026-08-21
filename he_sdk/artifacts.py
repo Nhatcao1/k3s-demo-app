@@ -18,6 +18,10 @@ from he_sdk.ciphertext import (
 )
 from he_sdk.config import CKKSConfig
 from he_sdk.errors import ArtifactError
+from he_sdk.result_release import (
+    ALLOWED_RESULT_OPERATIONS,
+    ReleasedResult,
+)
 
 if TYPE_CHECKING:
     from he_sdk.session import HESession
@@ -141,7 +145,11 @@ def initialize_workspace(
         )
     manifest: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
-        "backend": session.capabilities.backend,
+        "backend": getattr(
+            session._backend,
+            "artifact_backend",
+            session.capabilities.backend,
+        ),
         "engine_version": session._backend.engine_version,
         "context_id": session._backend.context_id,
         "context_fingerprint": session.config.fingerprint,
@@ -168,7 +176,11 @@ def validate_workspace(
     workspace = _workspace_path(path)
     manifest = _read_manifest(workspace)
     expected = {
-        "backend": session.capabilities.backend,
+        "backend": getattr(
+            session._backend,
+            "artifact_backend",
+            session.capabilities.backend,
+        ),
         "context_id": session._backend.context_id,
         "context_fingerprint": session.config.fingerprint,
         "key_bundle_id": session._backend.key_bundle_id,
@@ -212,12 +224,42 @@ def workspace_open_parameters(
 
 def save_ciphertext(
     session: "HESession",
-    value: EncryptedValue,
+    value: EncryptedValue | ReleasedResult,
     path: str | os.PathLike[str],
     *,
     name: str,
 ) -> Path:
-    session._owned(value)
+    if isinstance(value, ReleasedResult):
+        if value._session_id != session._session_id:
+            raise ArtifactError(
+                "released result belongs to a different release session"
+            )
+        metadata = value.metadata
+        if (
+            metadata.context_id != session._backend.context_id
+            or metadata.context_fingerprint != session.config.fingerprint
+            or metadata.backend
+            != getattr(
+                session._backend,
+                "artifact_backend",
+                session._backend.name,
+            )
+            or metadata.serialization_version
+            != session.config.serialization_version
+        ):
+            raise ArtifactError(
+                "released result is incompatible with this release session"
+            )
+        if metadata.key_bundle_id != value.recipient_id:
+            raise ArtifactError("released result recipient identity is invalid")
+        if metadata.logical_shape != () or metadata.valid_count != 1:
+            raise ArtifactError("released result must be an encrypted scalar")
+        if metadata.result_operation not in ALLOWED_RESULT_OPERATIONS:
+            raise ArtifactError(
+                "released result has no approved operation provenance"
+            )
+    else:
+        session._owned(value)
     artifact_name = _artifact_name(name)
     workspace = initialize_workspace(session, path)
     manifest = validate_workspace(session, workspace)
@@ -232,10 +274,18 @@ def save_ciphertext(
         raise ArtifactError("workspace ciphertext index is invalid")
     ciphertexts[artifact_name] = {
         "file": f"ciphertexts/{target.name}",
-        "kind": "scalar" if isinstance(value, EncryptedScalar) else "vector",
+        "kind": (
+            "released_scalar"
+            if isinstance(value, ReleasedResult)
+            else "scalar"
+            if isinstance(value, EncryptedScalar)
+            else "vector"
+        ),
         "metadata": asdict(metadata),
         "sha256": checksum,
     }
+    if isinstance(value, ReleasedResult):
+        ciphertexts[artifact_name]["recipient_id"] = value.recipient_id
     _write_manifest(workspace, manifest)
     return target
 
@@ -245,7 +295,7 @@ def load_ciphertext(
     path: str | os.PathLike[str],
     *,
     name: str,
-) -> EncryptedValue:
+) -> EncryptedValue | ReleasedResult:
     artifact_name = _artifact_name(name)
     workspace = _workspace_path(path)
     manifest = validate_workspace(session, workspace)
@@ -277,6 +327,27 @@ def load_ciphertext(
     if metadata.checksum != checksum:
         raise ArtifactError(f"ciphertext metadata checksum failed: {artifact_name}")
     handle = session._backend.deserialize_ciphertext(target)
+    if record.get("kind") == "released_scalar":
+        recipient_id = record.get("recipient_id")
+        if not isinstance(recipient_id, str) or not recipient_id:
+            raise ArtifactError(
+                f"released-result recipient is invalid: {artifact_name}"
+            )
+        if metadata.key_bundle_id != recipient_id:
+            raise ArtifactError(
+                f"released-result key identity is invalid: {artifact_name}"
+            )
+        if metadata.logical_shape != () or metadata.valid_count != 1:
+            raise ArtifactError(
+                f"released result must be a scalar: {artifact_name}"
+            )
+        if metadata.result_operation not in ALLOWED_RESULT_OPERATIONS:
+            raise ArtifactError(
+                f"released-result operation is invalid: {artifact_name}"
+            )
+        return ReleasedResult(
+            metadata, recipient_id, handle, session._session_id
+        )
     if record.get("kind") == "scalar":
         return EncryptedScalar(metadata, handle, session._session_id)
     if record.get("kind") == "vector":

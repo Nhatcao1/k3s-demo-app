@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Any, Sequence
 import uuid
 
-from he_sdk.backends import create_backend, create_backend_from_public_material
-from he_sdk.backends.base import HEBackend
-from he_sdk.capabilities import CapabilitySet
+from he_sdk.backends import (
+    HEBackend,
+    create_backend,
+    create_backend_from_public_material,
+)
 from he_sdk.ciphertext import (
     CiphertextMetadata,
     EncryptedScalar,
@@ -18,13 +20,20 @@ from he_sdk.ciphertext import (
     EncryptedVector,
 )
 from he_sdk.config import CKKSConfig
+from he_sdk.contracts import CapabilitySet, OPERATION_CONTRACTS
 from he_sdk.errors import (
     IncompatibleCiphertextError,
+    ResultReleaseError,
     SecretKeyUnavailableError,
     SessionClosedError,
     UnsupportedOperationError,
 )
-from he_sdk.operations import OPERATION_CONTRACTS
+from he_sdk.result_release import (
+    ALLOWED_RESULT_OPERATIONS,
+    RecipientPublicKey,
+    ReleasedResult,
+    ResultRecipient,
+)
 
 
 class HESession:
@@ -55,14 +64,24 @@ class HESession:
 
     @classmethod
     def open_workspace(
-        cls, path: str | os.PathLike[str]
+        cls,
+        path: str | os.PathLike[str],
+        *,
+        execution_backend: str | None = None,
     ) -> "HESession":
-        """Open a compute-only session from public persisted material."""
+        """Open a compute-only session from public persisted material.
+
+        ``execution_backend`` normally defaults to the backend that created
+        the workspace.  A compatible accelerator adapter can be selected
+        explicitly; for example, FIDES consumes the OpenFHE binary workspace
+        while preserving the artifact's original cryptographic identity.
+        """
         from he_sdk.artifacts import workspace_open_parameters
 
         workspace, manifest, config = workspace_open_parameters(path)
+        artifact_backend = str(manifest.get("backend", ""))
         backend = create_backend_from_public_material(
-            str(manifest.get("backend", "")),
+            execution_backend or artifact_backend,
             config,
             workspace / "material",
             context_id=str(manifest.get("context_id", "")),
@@ -97,7 +116,9 @@ class HESession:
             context_fingerprint=self.config.fingerprint,
             key_bundle_id=self._backend.key_bundle_id,
             scheme=self.config.scheme,
-            backend=self._backend.name,
+            backend=getattr(
+                self._backend, "artifact_backend", self._backend.name
+            ),
             engine_version=self._backend.engine_version,
             packing_layout="ckks-packed-contiguous-v1",
             valid_count=valid_count,
@@ -123,7 +144,10 @@ class HESession:
             problems.append("configuration")
         if metadata.key_bundle_id != self._backend.key_bundle_id:
             problems.append("key bundle")
-        if metadata.backend != self._backend.name:
+        artifact_backend = getattr(
+            self._backend, "artifact_backend", self._backend.name
+        )
+        if metadata.backend != artifact_backend:
             problems.append("backend")
         if metadata.scheme != self.config.scheme:
             problems.append("scheme")
@@ -254,6 +278,7 @@ class HESession:
             valid_count=1,
             level=level,
             checksum=None,
+            result_operation=operation,
         )
         return EncryptedScalar(metadata, handle, self._session_id)
 
@@ -274,9 +299,131 @@ class HESession:
             depth_cost=OPERATION_CONTRACTS["variance"].depth_cost,
         )
 
+    def create_result_recipient(self) -> ResultRecipient:
+        """Create an analyst key that is distinct from the data-owner key.
+
+        The session only needs the shared public CKKS context to generate this
+        independent key pair.  Keep the returned recipient on the analyst side
+        and send only ``recipient.public_key`` (or its exported artifact) to
+        the owner/release authority.
+        """
+        self._require_open()
+        if not self.capabilities.supports_proxy_re_encryption:
+            raise UnsupportedOperationError(
+                f"backend {self._backend.name!r} does not support proxy "
+                "re-encryption"
+            )
+        recipient_id, public_key, secret_key = (
+            self._backend.create_result_recipient()
+        )
+        return ResultRecipient(
+            recipient_id=recipient_id,
+            context_id=self._backend.context_id,
+            context_fingerprint=self.config.fingerprint,
+            session_id=self._session_id,
+            backend=self._backend.name,
+            engine_version=self._backend.engine_version,
+            serialization_version=self.config.serialization_version,
+            public_key=public_key,
+            secret_key=secret_key,
+            decryptor=self._backend.decrypt_for_recipient,
+            public_key_serializer=self._backend.serialize_public_key,
+            ciphertext_deserializer=self._backend.deserialize_ciphertext,
+        )
+
+    def load_recipient_public_key(
+        self, path: str | os.PathLike[str]
+    ) -> RecipientPublicKey:
+        """Load an analyst's public-only key artifact for result release."""
+        self._require_open()
+        from he_sdk.release_artifacts import load_recipient_public_key
+
+        return load_recipient_public_key(self, path)
+
+    def reencrypt_for_recipient(
+        self,
+        value: EncryptedScalar,
+        recipient_public_key: RecipientPublicKey,
+    ) -> ReleasedResult:
+        """Re-encrypt one approved aggregate to an analyst public key.
+
+        The owner secret key remains inside this session and the generated
+        re-encryption key is consumed by the backend without being returned.
+        """
+        self._require_open()
+        if not self.capabilities.supports_proxy_re_encryption:
+            raise UnsupportedOperationError(
+                f"backend {self._backend.name!r} does not support proxy "
+                "re-encryption"
+            )
+        if not isinstance(value, EncryptedScalar):
+            raise ResultReleaseError(
+                "only aggregate scalar results can be released to an analyst"
+            )
+        self._owned(value)
+        if not isinstance(recipient_public_key, RecipientPublicKey):
+            raise ResultReleaseError(
+                "release target must be a RecipientPublicKey"
+            )
+        expected = {
+            "context_id": self._backend.context_id,
+            "context_fingerprint": self.config.fingerprint,
+            "backend": self._backend.name,
+            "serialization_version": self.config.serialization_version,
+        }
+        mismatches = [
+            field
+            for field, wanted in expected.items()
+            if getattr(recipient_public_key, field) != wanted
+        ]
+        if mismatches:
+            raise IncompatibleCiphertextError(
+                "analyst public key is incompatible with this session: "
+                + ", ".join(mismatches)
+            )
+        operation = value.metadata.result_operation
+        if operation not in ALLOWED_RESULT_OPERATIONS:
+            raise ResultReleaseError(
+                "only sum, mean, and variance results can be released"
+            )
+        handle = self._backend.reencrypt_for_recipient(
+            value._handle, recipient_public_key._handle
+        )
+        metadata = replace(
+            value.metadata,
+            key_bundle_id=recipient_public_key.recipient_id,
+            checksum=None,
+        )
+        return ReleasedResult(
+            metadata,
+            recipient_public_key.recipient_id,
+            handle,
+            self._session_id,
+        )
+
+    def release_result(
+        self,
+        value: EncryptedScalar,
+        *,
+        to: ResultRecipient,
+    ) -> ReleasedResult:
+        """Re-encrypt an approved aggregate scalar to one analyst key.
+
+        PRE itself can re-encrypt any compatible ciphertext.  These checks are
+        therefore a release-policy boundary, not a cryptographic restriction
+        on the re-encryption key.  Do not give that native key to compute.
+        """
+        if not isinstance(to, ResultRecipient):
+            raise ResultReleaseError("release target must be a ResultRecipient")
+        if to._session_id != self._session_id:
+            raise IncompatibleCiphertextError(
+                "analyst recipient belongs to a different owner session"
+            )
+        return self.reencrypt_for_recipient(value, to.public_key)
+
     def save(
         self,
-        value: EncryptedValue,
+        value: EncryptedValue | ReleasedResult,
         workspace: str | os.PathLike[str],
         *,
         name: str,
@@ -292,7 +439,7 @@ class HESession:
         workspace: str | os.PathLike[str],
         *,
         name: str,
-    ) -> EncryptedValue:
+    ) -> EncryptedValue | ReleasedResult:
         """Load one compatible ciphertext from an SDK workspace."""
         self._require_open()
         from he_sdk.artifacts import load_ciphertext

@@ -39,6 +39,9 @@ def create_trial_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
     parameters.SetSecurityLevel(of.HEStd_128_classic)
     parameters.SetRingDim(RING_DIMENSION)
     parameters.SetBatchSize(BATCH_SIZE)
+    # OpenFHE 1.5 changed the PRE default from INDCPA to NOT_SET.  Select the
+    # trial mode explicitly so ReKeyGen/ReEncrypt receive valid parameters.
+    parameters.SetPREMode(of.INDCPA)
 
     context = of.GenCryptoContext(parameters)
     for feature in (
@@ -46,6 +49,9 @@ def create_trial_context_and_keys(openfhe_module: Any) -> tuple[Any, Any]:
         of.KEYSWITCH,
         of.LEVELEDSHE,
         of.ADVANCEDSHE,
+        # PRE is needed only at the trusted result-release boundary.  Enabling
+        # it does not give the compute worker a secret or re-encryption key.
+        of.PRE,
     ):
         context.Enable(feature)
 
@@ -210,6 +216,22 @@ class OpenFHECPU:
             raise RuntimeError(f"could not deserialize ciphertext {path.name}")
         return encrypted
 
+    def serialize_public_key(self, public_key: Any, path: Path) -> None:
+        """Serialize an analyst public key; this never writes secret material."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._openfhe.SerializeToFile(
+            str(path), public_key, self._openfhe.BINARY
+        ):
+            raise RuntimeError(f"could not serialize public key {path.name}")
+
+    def deserialize_public_key(self, path: Path) -> Any:
+        public_key, ok = self._openfhe.DeserializePublicKey(
+            str(path), self._openfhe.BINARY
+        )
+        if not ok:
+            raise RuntimeError(f"could not deserialize public key {path.name}")
+        return public_key
+
     @staticmethod
     def _values(values: Sequence[float]) -> list[float]:
         materialized = [float(value) for value in values]
@@ -233,6 +255,54 @@ class OpenFHECPU:
             self._keys.secretKey,
             encrypted,
         )
+        plaintext.SetLength(length)
+        return [
+            float(value)
+            for value in plaintext.GetRealPackedValue()[:length]
+        ]
+
+    def create_result_recipient(self) -> tuple[Any, Any]:
+        """Create an analyst key pair under the existing CKKS context.
+
+        The analyst secret key differs from ``self._keys.secretKey``.  It
+        cannot decrypt owner ciphertexts; only a ciphertext transformed by
+        ReEncrypt with a matching owner-to-analyst re-key can be decrypted.
+        """
+        # KeyGen needs the shared context, not the owner's secret.  This lets
+        # an analyst create its independent recipient key pair from a
+        # secretless workspace and export only the public half to releaser.
+        recipient_keys = self._context.KeyGen()
+        if not recipient_keys.good():
+            raise RuntimeError("could not generate analyst PRE key pair")
+        return recipient_keys.publicKey, recipient_keys.secretKey
+
+    def reencrypt_for_recipient(
+        self, encrypted: Any, recipient_public_key: Any
+    ) -> Any:
+        """Re-encrypt one approved result; never expose the generated re-key.
+
+        A PRE re-key is not tied to sum/mean/variance.  Keeping generation and
+        use inside this release method prevents the compute plane from using
+        it to transform input ciphertexts for the analyst.
+        """
+        if self._keys.secretKey is None:
+            raise RuntimeError("owner secret key is required for PRE release")
+        re_encryption_key = self._context.ReKeyGen(
+            self._keys.secretKey,
+            recipient_public_key,
+        )
+        # IND-CPA PRE uses the two-argument overload.  Passing the optional
+        # public key selects an HRA-oriented path and caused native polynomial
+        # parameter mismatches with this CKKS context.
+        return self._context.ReEncrypt(encrypted, re_encryption_key)
+
+    def decrypt_with_key(
+        self, encrypted: Any, secret_key: Any, length: int
+    ) -> list[float]:
+        """Decrypt with an explicitly supplied recipient key, not owner key."""
+        if not 1 <= length <= BATCH_SIZE:
+            raise ValueError(f"output length must be in [1, {BATCH_SIZE}]")
+        plaintext = self._context.Decrypt(secret_key, encrypted)
         plaintext.SetLength(length)
         return [
             float(value)

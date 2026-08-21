@@ -16,6 +16,14 @@ GPU tests. `FIDESLIB_ARCH` must match the server GPU before deployment.
 Add masked CI/CD variables `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` to the
 `k3s-demo-app` GitLab project. The GPU job is skipped until both exist.
 
+The same Dockerfile exposes an `sdk-notebook` target. GitLab job
+`build-he-notebook-gpu` publishes
+`docker.io/dockerboi99/he_k8s:notebook-gpu-<short-sha>` without requiring a GPU
+on the runner. The image contains JupyterLab, the checked core SDK wheel, the
+FIDES plugin wheel, CUDA/FIDESlib, and its native extension. The first real
+GPU operation runs as a startup gate in the K3s T4 Notebook Pod; there is no
+automatic CPU fallback.
+
 The image exposes the same `/v1/evaluate` HTTP shape as the CPU evaluator for
 `add`, `subtract`, `multiply`, `square`, `sum`, `mean`, and population
 `variance`. Its Python adapter

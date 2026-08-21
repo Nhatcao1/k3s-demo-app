@@ -29,3 +29,7 @@ class SecretKeyUnavailableError(HEError):
 
 class ArtifactError(HEError, ValueError):
     """A persisted HE workspace is missing, corrupt, or incompatible."""
+
+
+class ResultReleaseError(HEError, ValueError):
+    """A ciphertext is not eligible for result-only analyst release."""

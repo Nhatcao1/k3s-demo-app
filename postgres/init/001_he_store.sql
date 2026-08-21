@@ -42,12 +42,23 @@ CREATE TABLE IF NOT EXISTS he_store.artifacts (
     payload bytea NOT NULL,
     sha256 char(64) NOT NULL,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (run_id, artifact_type, sha256)
+    created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS artifacts_run_id_idx
     ON he_store.artifacts (run_id);
+
+-- Older lab releases deduplicated only by type and checksum. That prevented
+-- two correctly named CPU/GPU outputs from coexisting when their serialized
+-- ciphertext bytes happened to match. Identity is workspace path + checksum.
+ALTER TABLE he_store.artifacts
+    DROP CONSTRAINT IF EXISTS artifacts_run_id_artifact_type_sha256_key;
+CREATE UNIQUE INDEX IF NOT EXISTS artifacts_run_path_sha256_uidx
+    ON he_store.artifacts (
+        run_id,
+        (metadata->>'workspace_path'),
+        sha256
+    );
 
 COMMENT ON TABLE he_store.artifacts IS
     'Encrypted or public HE artifacts only. Never store plaintext or secret keys.';

@@ -1,6 +1,6 @@
 schema_version = 1
 profile = "ckks-balanced-v1"
-sdk_version = "0.4.0"
+sdk_version = "0.5.1"
 status = "development"
 
 [python]
@@ -22,16 +22,20 @@ secret_key_distribution = "library-default"
 serialization = "openfhe-binary-v1"
 workspace_format = "he-sdk-workspace-v1"
 compute_workspace_decryption = false
+proxy_re_encryption = "OpenFHE CKKS trial; public-key and released-result artifacts"
+pre_security_mode = "INDCPA trial; explicitly configured"
+recipient_public_key_format = "he-sdk-recipient-public-v1"
+released_result_kind = "released_scalar"
 
 [fides]
-sdk_backend_status = "plugin-source-implemented; native T4 acceptance pending"
-python_distribution = "he-sdk-fides==0.1.0"
+sdk_backend_status = "workspace-worker implemented; native T4 acceptance pending"
+python_distribution = "he-sdk-fides==0.2.0"
 git_commit = "786c7600fb2f16b724e0acf73df367b27b8afed6"
 source_description = "v2.1.2-7-g786c760 (README identifies 2.1.3)"
 patched_openfhe = "fideslib-ref-1.5.1.1"
 cuda_builder = "nvidia/cuda:12.9.1-devel-ubuntu24.04"
 target_architecture = "75-real"
-interoperability_status = "pending T4 decrypted-equivalence acceptance"
+interoperability_status = "OpenFHE workspace bridge implemented; pending T4 decrypted-equivalence acceptance"
 
 [resources.cpu]
 expected_cpu = "1-4 cores"
@@ -47,4 +51,6 @@ expected_vram = "TBD after measured SDK binding prototype"
 secret_key_owner = "local HESession or trusted client only"
 secret_key_persisted_in_workspace = false
 evaluator_secret_key_allowed = false
+pre_rekey_persisted = false
+pre_release_operations = ["sum", "mean", "variance"]
 automatic_cpu_gpu_fallback = false

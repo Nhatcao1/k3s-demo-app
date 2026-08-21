@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-from he_sdk import HESession
+from he_sdk import HESession, ResultReleaseError
 
 
 OPENFHE_AVAILABLE = importlib.util.find_spec("openfhe") is not None
@@ -61,6 +61,25 @@ class OpenFHESDKIntegrationTests(unittest.TestCase):
             self.assert_close(
                 he.decrypt(he.variance(left)), expected_variance
             )
+
+    def test_result_only_proxy_re_encryption(self) -> None:
+        values = [10.0, 20.0, 30.0]
+        with HESession.create(backend="openfhe") as owner:
+            encrypted_input = owner.encrypt(values)
+            analyst = owner.create_result_recipient()
+
+            # Keep the native smoke test deliberately small. Public-key and
+            # released-result persistence are covered by SDK contract tests;
+            # this verifies only one real OpenFHE PRE transformation.
+            released_sum = owner.reencrypt_for_recipient(
+                owner.sum(encrypted_input), analyst.public_key
+            )
+            self.assert_close(analyst.decrypt(released_sum), 60.0)
+
+            # The analyst API refuses an owner ciphertext, and its native key
+            # is different from the key that encrypted this input.
+            with self.assertRaises(ResultReleaseError):
+                analyst.decrypt(encrypted_input)  # type: ignore[arg-type]
 
     def test_secretless_workspace_across_processes(self) -> None:
         values = [10.0, 20.0, 30.0]
