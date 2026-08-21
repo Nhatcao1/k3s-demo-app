@@ -45,7 +45,7 @@ The plugin now has two explicit modes:
 Keep these packages separate:
 
 ```text
-he_looming_sdk==0.5.0  backend-neutral core and workspace worker contract
+he_looming_sdk==0.5.1  backend-neutral core and workspace worker contract
 he-sdk-fides==0.2.0    Linux/Python/CUDA native plugin
 ```
 
@@ -75,7 +75,7 @@ Deploy `gpu-<CI_COMMIT_SHORT_SHA>` to the K3s T4 node for that acceptance gate.
 For a build-only artifact on `main`, manually start `build-fides-sdk-wheel`.
 The wheel is also stored under `/opt/he-sdk-fides-wheel` in the GPU image.
 
-To release version `0.2.0`, publish `he_looming_sdk==0.5.0` first because it is the
+To release version `0.2.0`, publish `he_looming_sdk==0.5.1` first because it is the
 plugin's exact core dependency. Then push:
 
 ```sh
@@ -99,7 +99,7 @@ SDK_INDEX="https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/pa
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install --no-deps --index-url "$SDK_INDEX" he_looming_sdk==0.5.0
+python -m pip install --no-deps --index-url "$SDK_INDEX" he_looming_sdk==0.5.1
 python -m pip install --no-deps --index-url "$SDK_INDEX" he-sdk-fides==0.2.0
 ```
 

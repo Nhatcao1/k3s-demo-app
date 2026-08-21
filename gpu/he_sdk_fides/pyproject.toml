@@ -11,7 +11,7 @@ version = "0.2.0"
 description = "Optional CUDA FIDESlib backend for he_looming_sdk"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["he_looming_sdk==0.5.0"]
+dependencies = ["he_looming_sdk==0.5.1"]
 
 [tool.scikit-build]
 cmake.version = ">=3.25.2"
