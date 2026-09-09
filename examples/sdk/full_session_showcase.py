@@ -1,17 +1,5 @@
 #!/usr/bin/env python3
-"""Small end-to-end scenario for the current HE SDK.
-
-Run one backend per environment:
-
-    python examples/sdk/full_session_showcase.py --backend openfhe
-    python examples/sdk/full_session_showcase.py --backend fides
-
-OpenFHE demonstrates the complete persisted workspace and recipient flow.
-FIDES demonstrates local GPU encrypt, evaluate and decrypt; its local artifact
-and recipient APIs are not implemented yet, so those steps are skipped.
-"""
-
-from __future__ import annotations
+"""Straight-line example of the current HE SDK functions."""
 
 import argparse
 from datetime import datetime, timezone
@@ -19,177 +7,133 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-import time
-from typing import Callable
 
-from he_sdk import EncryptedScalar, EncryptedVector, HESession
+from he_sdk import HESession
 
 
-LEFT = [1.25, -2.0, 3.5, 4.0]
-RIGHT = [0.75, 5.0, -1.5, 2.0]
-EncryptedValue = EncryptedVector | EncryptedScalar
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--backend",
+    choices=("openfhe", "fides"),
+    default="openfhe",
+)
+args = parser.parse_args()
 
+left_values = [1.25, -2.0, 3.5, 4.0]
+right_values = [0.75, 5.0, -1.5, 2.0]
 
-def show(
-    session: HESession,
-    name: str,
-    operation: Callable[[], EncryptedValue],
-    expected: list[float] | float,
-) -> EncryptedValue:
-    started = time.perf_counter()
-    encrypted = operation()
-    evaluate_ms = (time.perf_counter() - started) * 1000
+print("backend:", args.backend)
+print("left input:", left_values)
+print("right input:", right_values)
 
-    started = time.perf_counter()
-    actual = session.decrypt(encrypted)
-    decrypt_ms = (time.perf_counter() - started) * 1000
+session = HESession.create(backend=args.backend)
 
-    print(f"{name:9} expected={expected}")
-    print(f"{'':9} decrypted={actual}")
-    print(f"{'':9} evaluate_ms={evaluate_ms:.3f}, decrypt_ms={decrypt_ms:.3f}")
-    return encrypted
+left_ct = session.encrypt(left_values)
+right_ct = session.encrypt(right_values)
+print("\nencrypted left:", left_ct)
+print("decrypted left:", session.decrypt(left_ct))
 
+add_ct = session.add(left_ct, right_ct)
+print("\nadd expected:", [2.0, 3.0, 2.0, 6.0])
+print("add decrypted:", session.decrypt(add_ct))
 
-def run_math(session: HESession) -> dict[str, EncryptedValue]:
-    print("\n1. Encrypt and calculate")
-    print("backend:", session.capabilities.backend)
-    print("left   :", LEFT)
-    print("right  :", RIGHT)
+subtract_ct = session.subtract(left_ct, right_ct)
+print("\nsubtract expected:", [0.5, -7.0, 5.0, 2.0])
+print("subtract decrypted:", session.decrypt(subtract_ct))
 
-    started = time.perf_counter()
-    left = session.encrypt(LEFT)
-    right = session.encrypt(RIGHT)
-    print("left_ct:", left)
-    print("encrypt two vectors ms:", (time.perf_counter() - started) * 1000)
+multiply_ct = session.multiply(left_ct, right_ct)
+print("\nmultiply expected:", [0.9375, -10.0, -5.25, 8.0])
+print("multiply decrypted:", session.decrypt(multiply_ct))
 
-    mean = sum(LEFT) / len(LEFT)
-    results = {
-        "add": show(
-            session,
-            "add",
-            lambda: session.add(left, right),
-            [a + b for a, b in zip(LEFT, RIGHT, strict=True)],
-        ),
-        "subtract": show(
-            session,
-            "subtract",
-            lambda: session.subtract(left, right),
-            [a - b for a, b in zip(LEFT, RIGHT, strict=True)],
-        ),
-        "multiply": show(
-            session,
-            "multiply",
-            lambda: session.multiply(left, right),
-            [a * b for a, b in zip(LEFT, RIGHT, strict=True)],
-        ),
-        "square": show(
-            session,
-            "square",
-            lambda: session.square(left),
-            [value * value for value in LEFT],
-        ),
-        "sum": show(session, "sum", lambda: session.sum(left), sum(LEFT)),
-        "mean": show(session, "mean", lambda: session.mean(left), mean),
-        "variance": show(
-            session,
-            "variance",
-            lambda: session.variance(left),
-            sum((value - mean) ** 2 for value in LEFT) / len(LEFT),
-        ),
-    }
-    results["input"] = left
-    return results
+square_ct = session.square(left_ct)
+print("\nsquare expected:", [1.5625, 4.0, 12.25, 16.0])
+print("square decrypted:", session.decrypt(square_ct))
 
+sum_ct = session.sum(left_ct)
+print("\nsum expected:", 6.75)
+print("sum decrypted:", session.decrypt(sum_ct))
 
-# OpenFHE workspace loading runs in another process because it represents a
-# separate secretless compute boundary, not a second trusted owner session.
-COMPUTE_CODE = r"""
+mean_ct = session.mean(left_ct)
+print("\nmean expected:", 1.6875)
+print("mean decrypted:", session.decrypt(mean_ct))
+
+variance_ct = session.variance(left_ct)
+print("\nvariance expected:", 5.60546875)
+print("variance decrypted:", session.decrypt(variance_ct))
+
+if args.backend == "openfhe":
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    workspace = Path(f"he-sdk-showcase-{timestamp}")
+
+    print("\n--- save and load ---")
+    session.save(left_ct, workspace, name="input")
+    loaded_ct = session.load(workspace, name="input")
+    print("workspace:", workspace)
+    print("loaded input:", session.decrypt(loaded_ct))
+
+    # Use another process for the compute-only session. It receives public
+    # material and ciphertext, but it does not receive the secret key.
+    compute_code = r"""
 import json
 from pathlib import Path
 import sys
 from he_sdk import HESession, SecretKeyUnavailableError
 
 workspace = Path(sys.argv[1])
-with HESession.open_workspace(workspace) as compute:
-    encrypted = compute.load(workspace, name="input")
-    compute.save(compute.sum(encrypted), workspace, name="computed_sum")
-    try:
-        compute.decrypt(encrypted)
-    except SecretKeyUnavailableError:
-        print(json.dumps({"compute": "PASS", "has_secret_key": False}))
-    else:
-        raise RuntimeError("compute session unexpectedly decrypted input")
+compute = HESession.open_workspace(workspace)
+input_ct = compute.load(workspace, name="input")
+result_ct = compute.sum(input_ct)
+compute.save(result_ct, workspace, name="compute_sum")
+
+try:
+    compute.decrypt(input_ct)
+except SecretKeyUnavailableError:
+    print(json.dumps({"compute_has_secret_key": False}))
+
+compute.close()
 """
 
-
-def run_openfhe_artifacts(
-    owner: HESession,
-    results: dict[str, EncryptedValue],
-) -> None:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    workspace = Path(f"he-sdk-showcase-{timestamp}")
-
-    print("\n2. Save and load encrypted object")
-    owner.save(results["input"], workspace, name="input")
-    loaded_input = owner.load(workspace, name="input")
-    print("workspace:", workspace)
-    print("owner decrypted loaded input:", owner.decrypt(loaded_input))
-
-    print("\n3. Reopen workspace in a secretless compute session")
+    print("\n--- reopen secretless compute session ---")
     completed = subprocess.run(
-        [sys.executable, "-c", COMPUTE_CODE, str(workspace)],
-        check=False,
+        [sys.executable, "-c", compute_code, str(workspace)],
+        check=True,
         capture_output=True,
         text=True,
         timeout=600,
     )
-    if completed.returncode != 0:
-        raise RuntimeError(completed.stderr or completed.stdout)
-    print(completed.stdout.strip())
-    computed_sum = owner.load(workspace, name="computed_sum")
-    print("owner decrypted computed sum:", owner.decrypt(computed_sum))
+    print(json.loads(completed.stdout))
 
-    print("\n4. Release approved aggregate results")
-    analyst = owner.create_result_recipient()
-    recipient_path = Path(f"{workspace}-recipient")
-    released_path = Path(f"{workspace}-released")
-    analyst.save_public_key(recipient_path)
-    public_key = owner.load_recipient_public_key(recipient_path)
+    compute_sum_ct = session.load(workspace, name="compute_sum")
+    print("owner decrypts compute result:", session.decrypt(compute_sum_ct))
 
-    released_sum = owner.reencrypt_for_recipient(
-        results["sum"],  # type: ignore[arg-type]
-        public_key,
+    print("\n--- release result to recipient ---")
+    analyst = session.create_result_recipient()
+    recipient_directory = Path(f"{workspace}-recipient")
+    released_workspace = Path(f"{workspace}-released")
+
+    analyst.save_public_key(recipient_directory)
+    analyst_public_key = session.load_recipient_public_key(
+        recipient_directory
     )
-    released_mean = owner.release_result(
-        results["mean"],  # type: ignore[arg-type]
-        to=analyst,
-    )
-    owner.save(released_sum, released_path, name="sum")
-    owner.save(released_mean, released_path, name="mean")
 
-    print("analyst sum :", analyst.decrypt(analyst.load(released_path, name="sum")))
-    print("analyst mean:", analyst.decrypt(analyst.load(released_path, name="mean")))
+    released_sum = session.reencrypt_for_recipient(
+        sum_ct,
+        analyst_public_key,
+    )
+    released_mean = session.release_result(mean_ct, to=analyst)
+
+    session.save(released_sum, released_workspace, name="sum")
+    session.save(released_mean, released_workspace, name="mean")
+
+    analyst_sum = analyst.load(released_workspace, name="sum")
+    analyst_mean = analyst.load(released_workspace, name="mean")
+    print("analyst decrypts sum:", analyst.decrypt(analyst_sum))
+    print("analyst decrypts mean:", analyst.decrypt(analyst_mean))
     print("secret key saved: no")
+else:
+    print("\n--- current FIDES limits ---")
+    print("save/load: not implemented for a local FIDES session")
+    print("recipient release: not implemented for FIDES")
 
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--backend", choices=("openfhe", "fides"), default="openfhe"
-    )
-    args = parser.parse_args()
-
-    with HESession.create(backend=args.backend) as session:
-        results = run_math(session)
-        if args.backend == "openfhe":
-            run_openfhe_artifacts(session, results)
-        else:
-            print("\n2. Artifact and release support")
-            print("SKIP save/load: local FIDES serialization is not implemented")
-            print("SKIP recipient: FIDES result release is not implemented")
-
-    print("\n5. Session closed: PASS")
-
-
-if __name__ == "__main__":
-    main()
+session.close()
+print("\nsession closed")
