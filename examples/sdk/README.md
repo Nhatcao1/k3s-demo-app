@@ -23,7 +23,7 @@ Khuyến nghị tạo virtual environment riêng:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk[openfhe]==0.4.1"
+python -m pip install "he_looming_sdk[openfhe]==0.5.1"
 ```
 
 Kiểm tra package:
@@ -35,8 +35,23 @@ python -c "import he_sdk; print(he_sdk.__version__)"
 Kết quả mong đợi:
 
 ```text
-0.4.1
+0.5.1
 ```
+
+## Kịch bản hiển thị toàn bộ lifecycle
+
+File `full_session_showcase.py` in ra input, ciphertext wrapper, expected output,
+decrypted output, sai số và thời gian cho tất cả phép toán hiện có:
+
+```bash
+python examples/sdk/full_session_showcase.py --backend openfhe
+python examples/sdk/full_session_showcase.py --backend fides
+```
+
+`openfhe` còn minh họa `save/load`, mở một compute-only session từ workspace,
+và release kết quả tổng hợp cho recipient. `fides` chạy phần toán học trên GPU;
+local FIDES serialization và recipient/PRE chưa được hỗ trợ nên file sẽ ghi
+`SKIP` rõ ràng cho hai phần này.
 
 OpenFHE wheel được dùng chủ yếu trên Linux. Nếu máy cá nhân không cài được
 extra `openfhe`, hãy chạy phần HE trên Linux server, Docker image hoặc GitLab
