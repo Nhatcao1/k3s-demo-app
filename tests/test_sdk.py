@@ -26,6 +26,7 @@ from he_sdk import (
     __version__,
 )
 from he_sdk.backends import create_backend
+from he_sdk import native_runtime
 from he_sdk import smoke
 
 
@@ -160,6 +161,9 @@ class SDKContractTests(unittest.TestCase):
     def test_package_and_compatibility_versions_match(self) -> None:
         root = Path(__file__).parents[1]
         project = tomllib.loads((root / "pyproject.toml").read_text())
+        fides_project = tomllib.loads(
+            (root / "gpu" / "he_sdk_fides" / "pyproject.toml").read_text()
+        )
         compatibility = tomllib.loads(
             (root / "compatibility" / "he-sdk-v1.toml").read_text()
         )
@@ -169,6 +173,26 @@ class SDKContractTests(unittest.TestCase):
             compatibility["openfhe"]["workspace_format"],
             "he-sdk-workspace-v1",
         )
+        self.assertEqual(project["project"]["requires-python"], ">=3.12,<3.13")
+        self.assertEqual(
+            project["project"]["dependencies"],
+            ["openfhe==1.5.1.0.24.4", "he-sdk-fides==0.3.0"],
+        )
+        self.assertEqual(fides_project["project"]["version"], "0.3.0")
+        self.assertEqual(fides_project["project"]["dependencies"], [])
+        self.assertEqual(
+            compatibility["fides"]["python_distribution"],
+            "he-sdk-fides==0.3.0",
+        )
+
+    def test_process_cannot_mix_stock_and_patched_openfhe(self) -> None:
+        with mock.patch.object(native_runtime, "_selected_backend", None):
+            native_runtime.claim_native_runtime("openfhe")
+            native_runtime.claim_native_runtime("openfhe")
+            with self.assertRaisesRegex(
+                BackendUnavailableError, "fresh Python process"
+            ):
+                native_runtime.claim_native_runtime("fides")
 
     def test_vector_functions_and_reductions(self) -> None:
         left = self.session.encrypt([1, 2, 3, 4])

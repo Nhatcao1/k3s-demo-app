@@ -67,6 +67,7 @@ validate-files:
     - test -f he_sdk/smoke.py
     - test -f he_sdk/backends/base.py
     - test -f he_sdk/backends/openfhe.py
+    - test -f he_sdk/native_runtime.py
     - test -f he_worker/__main__.py
     - test -f he_worker/request.py
     - test -f he_worker/runner.py
@@ -202,8 +203,6 @@ build-fides-sdk-wheel:
         - gpu/Dockerfile
         - gpu/he_sdk_fides/**/*
         - gpu/worker/**/*
-      when: manual
-      allow_failure: true
   script:
     - |
       buildctl-daemonless.sh build \
@@ -260,6 +259,17 @@ publish-sdk-pypi:
       PACKAGE_VERSION="$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
       test "$CI_COMMIT_TAG" = "v$PACKAGE_VERSION"
       test -n "${PYPI_API_TOKEN:-}"
+    - >-
+      python -m pip download
+      --disable-pip-version-check
+      --no-deps
+      --only-binary=:all:
+      --platform manylinux_2_39_x86_64
+      --implementation cp
+      --python-version 312
+      --abi cp312
+      --dest /tmp/fides-release-check
+      he-sdk-fides==0.3.0
     - python -m twine check dist/*.whl
     - |
       TWINE_USERNAME=__token__ \
@@ -287,6 +297,29 @@ publish-fides-sdk-gitlab:
         --non-interactive \
         --repository-url "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/pypi" \
         "$FIDES_SDK_WHEEL_DIR"/*.whl
+
+publish-fides-sdk-pypi:
+  stage: publish
+  image: python:3.12-alpine
+  dependencies:
+    - build-fides-sdk-wheel
+  environment:
+    name: pypi-fides
+    url: https://pypi.org/project/he-sdk-fides/
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^fides-v[0-9]+\.[0-9]+\.[0-9]+$/'
+  before_script:
+    - python -m pip install --disable-pip-version-check 'twine>=6,<7'
+  script:
+    - |
+      PACKAGE_VERSION="$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("gpu/he_sdk_fides/pyproject.toml").read_text())["project"]["version"])')"
+      test "$CI_COMMIT_TAG" = "fides-v$PACKAGE_VERSION"
+      test -n "${FIDES_PYPI_API_TOKEN:-}"
+    - python -m twine check "$FIDES_SDK_WHEEL_DIR"/*.whl
+    - |
+      TWINE_USERNAME=__token__ \
+      TWINE_PASSWORD="$FIDES_PYPI_API_TOKEN" \
+      python -m twine upload --non-interactive "$FIDES_SDK_WHEEL_DIR"/*.whl
 
 build-openfhe-evaluator-cpu:
   stage: build

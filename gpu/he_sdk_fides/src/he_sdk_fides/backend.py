@@ -21,7 +21,7 @@ from he_sdk.errors import (
 
 
 class FidesBackend:
-    """Trusted local GPU backend backed by the optional native extension."""
+    """Trusted local GPU backend backed by the installed native extension."""
 
     name = "fides"
     artifact_backend = name
@@ -51,8 +51,8 @@ class FidesBackend:
             native = importlib.import_module("he_sdk_fides._native")
         except (ImportError, OSError) as error:
             raise BackendUnavailableError(
-                "The he-sdk-fides native extension is unavailable. Install "
-                "the GPU wheel built for this CUDA/Linux environment."
+                "The installed he-sdk-fides native extension is unavailable "
+                "in this CUDA/Linux environment."
             ) from error
 
         self.engine_version = str(
