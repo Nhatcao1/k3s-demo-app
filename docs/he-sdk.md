@@ -57,7 +57,7 @@ Install both CPU and GPU backends on supported Python 3.12/Linux with one
 command, then select exactly one backend per Python process:
 
 ```sh
-python3 -m pip install he_looming_sdk==0.6.0
+python3 -m pip install he_looming_sdk==0.6.1
 HE_SDK_BACKEND=openfhe python3 examples/sdk/full_session_showcase.py
 # In a fresh process on a CUDA host:
 HE_SDK_BACKEND=fides python3 examples/sdk/full_session_showcase.py

@@ -110,6 +110,7 @@ RUN /opt/fides-wheel-build/bin/auditwheel show \
       /opt/he-sdk-fides-wheel-raw/he_sdk_fides-*.whl \
     && /opt/fides-wheel-build/bin/auditwheel repair \
       --plat manylinux_2_39_x86_64 \
+      --exclude libcuda.so.1 \
       --wheel-dir /opt/he-sdk-fides-wheel \
       /opt/he-sdk-fides-wheel-raw/he_sdk_fides-*.whl
 

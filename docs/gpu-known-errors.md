@@ -16,6 +16,7 @@ Keep this short list updated whenever a GPU CI or K3s failure is diagnosed.
 | `gpu-7d830d6` cannot be pulled although Docker Hub shows the build | GitLab `CI_COMMIT_SHORT_SHA` is 8 characters here; the real tag is `gpu-7d830d6f`. The 7-character SHA shown in local `git log --oneline` is not the image tag. | Copy the complete tag from Docker Hub or GitLab job output. |
 | `http: server gave HTTP response to HTTPS client` while pulling from `hub.vtcc.vn:8989` | Containerd assumes HTTPS, but that mirror endpoint answered plain HTTP. This is independent of whether the tag exists. | Use the direct HTTPS Docker Hub repository, or ask the cluster administrator to configure this exact registry as an allowed plain-HTTP mirror on every target node. A Kubernetes TLS-skip flag or imagePullSecret does not fix the node runtime protocol. |
 | PyPI rejects the FIDES wheel as `linux_x86_64` | PyPI accepts portable manylinux platform tags rather than the builder's generic Linux tag. | Keep the `auditwheel repair --plat manylinux_2_39_x86_64` step in `gpu/Dockerfile`; do not publish the raw wheel. |
+| `auditwheel repair` cannot locate `libcuda.so.1` | `libcuda.so.1` belongs to the host NVIDIA driver and must not be bundled into a Python wheel. | Keep `--exclude libcuda.so.1`; the target GPU host must provide the compatible NVIDIA driver. |
 
 Important architecture rule: the two Python packages may coexist on disk, but
 never load standard OpenFHE and FIDESlib's patched OpenFHE into the same

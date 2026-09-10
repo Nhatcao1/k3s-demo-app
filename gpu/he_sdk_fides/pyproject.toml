@@ -7,7 +7,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "he-sdk-fides"
-version = "0.3.0"
+version = "0.3.1"
 description = "CUDA FIDESlib backend installed by he_looming_sdk"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

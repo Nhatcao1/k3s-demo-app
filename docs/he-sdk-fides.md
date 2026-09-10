@@ -1,17 +1,17 @@
 # FIDES backend trong package SDK
 
-`he_looming_sdk==0.6.0` cung cấp một lệnh cài cho cả hai backend:
+`he_looming_sdk==0.6.1` cung cấp một lệnh cài cho cả hai backend:
 
 ```sh
-python3 -m pip install he_looming_sdk==0.6.0
+python3 -m pip install he_looming_sdk==0.6.1
 ```
 
 Pip tự cài ba distribution sau; người dùng không cần cài từng package:
 
 ```text
-he_looming_sdk==0.6.0
+he_looming_sdk==0.6.1
 openfhe==1.5.1.0.24.4
-he-sdk-fides==0.3.0
+he-sdk-fides==0.3.1
 ```
 
 `he-sdk-fides` là native wheel Python 3.12/Linux x86_64. Wheel chứa Python
@@ -48,7 +48,7 @@ SDK không tự fallback GPU sang CPU.
 kiểm tra compile/package; kiểm tra runtime vẫn chạy trên T4.
 
 Release FIDES phải có trên PyPI trước core vì core phụ thuộc chính xác vào
-`he-sdk-fides==0.3.0`.
+`he-sdk-fides==0.3.1`.
 
 Tạo GitLab variable bảo vệ sau trước lần publish đầu tiên:
 
@@ -60,12 +60,12 @@ Sau khi pipeline `main` thành công, publish theo thứ tự:
 
 ```sh
 git fetch origin main
-git tag -a fides-v0.3.0 origin/main -m "Publish he-sdk-fides 0.3.0"
-git push origin fides-v0.3.0
+git tag -a fides-v0.3.1 origin/main -m "Publish he-sdk-fides 0.3.1"
+git push origin fides-v0.3.1
 ```
 
 Chờ cả `publish-fides-sdk-gitlab` và `publish-fides-sdk-pypi` thành công rồi
-mới tạo tag core `v0.6.0`; xem `he-sdk-pypi.md`.
+mới tạo tag core `v0.6.1`; xem `he-sdk-pypi.md`.
 
 ## Giới hạn hiện tại
 

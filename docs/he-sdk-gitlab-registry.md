@@ -10,8 +10,8 @@ https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi
 Hai tag release kích hoạt hai job private tương ứng:
 
 ```text
-fides-v0.3.0 -> publish-fides-sdk-gitlab
-v0.6.0       -> publish-sdk-gitlab
+fides-v0.3.1 -> publish-fides-sdk-gitlab
+v0.6.1       -> publish-sdk-gitlab
 ```
 
 Thứ tự tag giống public release: FIDES trước, core sau. Xem
@@ -45,7 +45,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he_looming_sdk==0.6.0
+  he_looming_sdk==0.6.1
 ```
 
 Pip lấy core và FIDES component từ GitLab; OpenFHE dependency có thể lấy từ

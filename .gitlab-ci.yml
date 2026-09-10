@@ -269,7 +269,7 @@ publish-sdk-pypi:
       --python-version 312
       --abi cp312
       --dest /tmp/fides-release-check
-      he-sdk-fides==0.3.0
+      he-sdk-fides==0.3.1
     - python -m twine check dist/*.whl
     - |
       TWINE_USERNAME=__token__ \

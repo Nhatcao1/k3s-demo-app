@@ -176,13 +176,13 @@ class SDKContractTests(unittest.TestCase):
         self.assertEqual(project["project"]["requires-python"], ">=3.12,<3.13")
         self.assertEqual(
             project["project"]["dependencies"],
-            ["openfhe==1.5.1.0.24.4", "he-sdk-fides==0.3.0"],
+            ["openfhe==1.5.1.0.24.4", "he-sdk-fides==0.3.1"],
         )
-        self.assertEqual(fides_project["project"]["version"], "0.3.0")
+        self.assertEqual(fides_project["project"]["version"], "0.3.1")
         self.assertEqual(fides_project["project"]["dependencies"], [])
         self.assertEqual(
             compatibility["fides"]["python_distribution"],
-            "he-sdk-fides==0.3.0",
+            "he-sdk-fides==0.3.1",
         )
 
     def test_process_cannot_mix_stock_and_patched_openfhe(self) -> None:
