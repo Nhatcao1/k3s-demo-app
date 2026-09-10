@@ -8,7 +8,6 @@ from typing import Any, Protocol, Sequence
 from he_sdk.config import CKKSConfig
 from he_sdk.contracts import CapabilitySet
 from he_sdk.errors import BackendUnavailableError
-from he_sdk.native_runtime import claim_native_runtime
 
 
 class HEBackend(Protocol):
@@ -68,17 +67,15 @@ def create_backend(name: str, config: CKKSConfig) -> HEBackend:
     if normalized == "openfhe":
         from he_sdk.backends.openfhe import OpenFHEBackend
 
-        claim_native_runtime("openfhe")
         return OpenFHEBackend(config)
     if normalized == "fides":
         try:
             from he_sdk_fides import FidesBackend
         except (ImportError, OSError) as error:
             raise BackendUnavailableError(
-                "The he-sdk-fides component is unavailable. Reinstall "
-                "he_looming_sdk in the supported CUDA/Linux environment."
+                "The optional he-sdk-fides package is not installed. Install "
+                "the CUDA/Linux wheel built for the target GPU server."
             ) from error
-        claim_native_runtime("fides")
         return FidesBackend(config)
     raise ValueError(f"unknown HE backend: {name}")
 
@@ -96,7 +93,6 @@ def create_backend_from_public_material(
     if normalized == "openfhe":
         from he_sdk.backends.openfhe import OpenFHEBackend
 
-        claim_native_runtime("openfhe")
         return OpenFHEBackend.from_public_material(
             config,
             directory,
@@ -108,8 +104,8 @@ def create_backend_from_public_material(
             from he_sdk_fides import FidesBackend
         except (ImportError, OSError) as error:
             raise BackendUnavailableError(
-                "The he-sdk-fides component is unavailable. Reinstall "
-                "he_looming_sdk in the supported CUDA/Linux environment."
+                "The optional he-sdk-fides package is not installed. Install "
+                "the CUDA/Linux wheel built for the target GPU server."
             ) from error
         return FidesBackend.from_public_material(
             config,

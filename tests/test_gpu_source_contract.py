@@ -11,13 +11,6 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 
 
 class FidesSourceContractTests(unittest.TestCase):
-    def test_manylinux_wheel_keeps_nvidia_driver_external(self) -> None:
-        dockerfile = (REPOSITORY / "gpu" / "Dockerfile").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("auditwheel repair", dockerfile)
-        self.assertIn("--exclude libcuda.so.1", dockerfile)
-
     def test_encrypt_never_receives_temporary_plaintext(self) -> None:
         """FIDESlib Encrypt requires Plaintext&, unlike standard OpenFHE."""
         for source in (REPOSITORY / "gpu" / "worker" / "src").glob("*.cpp"):

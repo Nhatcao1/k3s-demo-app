@@ -1,27 +1,91 @@
-# HE SDK private GitLab registry
+# HE SDK package registry guide
 
-Public PyPI là đường cài chính. GitLab Package Registry giữ bản private của cả
-core và native FIDES component tại:
+`he_looming_sdk` will be published to the private, PyPI-compatible package registry of
+the `nhatcao99uetwork/k3s-demo-app` GitLab project when its release tag pipeline
+succeeds. Public PyPI is the primary developer install path; GitLab remains the
+private fallback and internal package source.
+
+GitLab accepts either a numeric project ID or a URL-encoded project path in
+package API URLs. The filled project identifier for this repository is:
+
+```text
+nhatcao99uetwork%2Fk3s-demo-app
+```
+
+The resulting package index is:
 
 ```text
 https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple
 ```
 
-Hai tag release kích hoạt hai job private tương ứng:
+## Publish version 0.3.1 from CI
 
-```text
-fides-v0.3.1 -> publish-fides-sdk-gitlab
-v0.6.1       -> publish-sdk-gitlab
+The `publish-sdk-gitlab` job in `.gitlab-ci.yml` publishes the wheel only from
+a semantic-version tag. It uses GitLab's short-lived `CI_JOB_TOKEN`; do not
+create or save a publishing token for this job.
+
+Make sure the version in `pyproject.toml` is `0.3.1`, merge the code, and push
+the matching tag:
+
+```sh
+git tag -a v0.3.1 -m "Publish he_looming_sdk 0.3.1"
+git push origin v0.3.1
 ```
 
-Thứ tự tag giống public release: FIDES trước, core sau. Xem
-`he-sdk-pypi.md`.
+The publish job deliberately fails if the tag and package version differ.
+GitLab does not allow the same package name and version to be uploaded twice,
+so bump `pyproject.toml` and create a new tag for every release.
 
-## Deploy token chỉ đọc
+After the job succeeds, find the wheel under **Deploy > Package registry** in
+the `k3s-demo-app` project.
 
-Trên GitLab mở **Settings > Repository > Deploy tokens**, tạo token có scope
-`read_package_registry`, rồi lưu username/token vào `~/.netrc` của service
-account:
+## Install inside another GitLab CI job
+
+The token in the original command is the current job's built-in
+`CI_JOB_TOKEN`. No secret variable needs to be prepared:
+
+```sh
+python -m pip install --no-deps \
+  --index-url "https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
+  he_looming_sdk==0.3.1
+```
+
+If the consuming pipeline belongs to a different private project, allow that
+project or group in the package project's **Settings > CI/CD > Job token
+permissions** allowlist.
+
+## Prepare a read-only token for another server
+
+Do not copy a CI job token to a server: it is temporary and tied to a running
+job. In the `k3s-demo-app` project, open **Settings > Repository > Deploy
+tokens**, then create a token with:
+
+- name: `he-looming-sdk-reader`;
+- an appropriate expiry date;
+- scope: `read_package_registry` only.
+
+Copy both values shown by GitLab: the deploy-token **username** and the token
+itself. GitLab often generates a username such as
+`gitlab+deploy-token-123456`; use the exact displayed value.
+
+For a quick test, supply those values through environment variables. The
+username is not `gitlab-ci-token` in this case:
+
+```sh
+export HE_SDK_GITLAB_USER='gitlab+deploy-token-123456'
+read -rsp 'GitLab deploy token: ' HE_SDK_GITLAB_TOKEN
+printf '\n'
+
+python -m pip install --no-deps \
+  --index-url "https://${HE_SDK_GITLAB_USER}:${HE_SDK_GITLAB_TOKEN}@gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
+  he_looming_sdk==0.3.1
+
+unset HE_SDK_GITLAB_TOKEN
+```
+
+The expanded URL may be visible briefly to other users in the process list.
+For a durable server setup, store the credentials in the service account's
+`~/.netrc` instead and restrict the file to that account:
 
 ```text
 machine gitlab.com
@@ -31,36 +95,67 @@ password REPLACE_WITH_DEPLOY_TOKEN
 
 ```sh
 chmod 600 ~/.netrc
+python -m pip install --no-deps \
+  --index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
+  he_looming_sdk==0.3.1
 ```
 
-Không commit `.netrc` hoặc token.
+Never commit `.netrc`, a deploy token, or an index URL containing credentials.
+Rotate the deploy token if it appears in logs or shell history.
 
-## Cài một lệnh từ private registry
+## Install the OpenFHE runtime and test a Python file
 
-Trên Python 3.12/Linux x86_64:
+The private wheel contains the SDK wrapper but deliberately has no mandatory
+heavy dependency. On a supported Linux server, create a virtual environment,
+install OpenFHE from public PyPI, then install the private wheel:
 
 ```sh
 python3 -m venv .venv
-source .venv/bin/activate
+. .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
-  --extra-index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he_looming_sdk==0.6.1
+  --index-url https://pypi.org/simple \
+  openfhe==1.5.1.0.24.4
+python -m pip install --no-deps \
+  --index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
+  he_looming_sdk==0.3.1
 ```
 
-Pip lấy core và FIDES component từ GitLab; OpenFHE dependency có thể lấy từ
-public PyPI. Không dùng `--no-deps`, nếu không all-in-one installation sẽ bị
-vô hiệu hóa.
+The last command assumes the deploy-token credentials are in `~/.netrc`.
+Then create `test_he_sdk.py`:
 
-Kiểm tra:
+```python
+from he_sdk import HESession
 
-```sh
-python -c 'import he_sdk; print(he_sdk.__version__)'
-HE_SDK_BACKEND=openfhe python -m he_sdk.smoke
+
+with HESession.create(backend="openfhe") as he:
+    encrypted = he.encrypt([1.0, 2.0, 3.0, 4.0])
+    encrypted_result = he.mean(encrypted)
+    print(he.decrypt(encrypted_result))
 ```
 
-GPU smoke phải chạy ở process mới trên CUDA host:
+Run it without Docker or K3s:
 
 ```sh
-HE_SDK_BACKEND=fides python -m he_sdk.smoke
+python test_he_sdk.py
+```
+
+For the separate CUDA/FIDESlib plugin package, build, publish and install
+`he-sdk-fides==0.1.0` using the process in `he-sdk-fides.md`. Do not install the
+stock `openfhe` Python distribution in that GPU environment.
+
+## Optional: look up the numeric project ID
+
+The encoded path above is already a valid project identifier, so a numeric ID
+is unnecessary. If a tool insists on a number, create a short-lived GitLab
+access token with `read_api`, keep it out of the command line, and run:
+
+```sh
+read -rsp 'GitLab API token: ' GITLAB_API_TOKEN
+printf '\n'
+curl --fail --silent --show-error \
+  --header "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" \
+  "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])'
+unset GITLAB_API_TOKEN
 ```

@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libomp-dev \
     patch \
-    patchelf \
     python3 \
     python3-dev \
     python3-venv \
@@ -93,26 +92,13 @@ RUN cmake --build /src/worker/build --parallel "${BUILD_JOBS}"
 # toolchain used by the worker. The core he-sdk wheel remains separate.
 RUN python3 -m venv /opt/fides-wheel-build \
     && /opt/fides-wheel-build/bin/python -m pip install \
-      --disable-pip-version-check \
-      'auditwheel>=6.4,<7' \
-      'build>=1.2,<2'
+      --disable-pip-version-check 'build>=1.2,<2'
 
 RUN CMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
     /opt/fides-wheel-build/bin/python -m build \
       --wheel \
-      --outdir /opt/he-sdk-fides-wheel-raw \
+      --outdir /opt/he-sdk-fides-wheel \
       /src/he_sdk_fides
-
-# PyPI rejects generic linux_x86_64 wheels. Repair the native wheel with its
-# non-system shared libraries and a PEP 600 tag matching Ubuntu 24.04/glibc
-# 2.39. The NVIDIA driver remains a host requirement and is not bundled.
-RUN /opt/fides-wheel-build/bin/auditwheel show \
-      /opt/he-sdk-fides-wheel-raw/he_sdk_fides-*.whl \
-    && /opt/fides-wheel-build/bin/auditwheel repair \
-      --plat manylinux_2_39_x86_64 \
-      --exclude libcuda.so.1 \
-      --wheel-dir /opt/he-sdk-fides-wheel \
-      /opt/he-sdk-fides-wheel-raw/he_sdk_fides-*.whl
 
 FROM scratch AS sdk-wheel
 COPY --from=builder /opt/he-sdk-fides-wheel/ /

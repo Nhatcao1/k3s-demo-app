@@ -1,76 +1,129 @@
-# FIDES backend trong package SDK
+# FIDES GPU SDK plugin
 
-`he_looming_sdk==0.6.1` cung cấp một lệnh cài cho cả hai backend:
+`he-sdk-fides` is the optional Linux/CUDA plugin that implements the same
+`HESession` contract as the core OpenFHE backend:
 
-```sh
-python3 -m pip install he_looming_sdk==0.6.1
+```python
+from he_sdk import HESession
+
+with HESession.create(backend="fides") as he:
+    encrypted = he.encrypt([1.0, 2.0, 3.0, 4.0])
+    result = he.variance(encrypted)
+    print(he.decrypt(result))
 ```
 
-Pip tự cài ba distribution sau; người dùng không cần cài từng package:
+The public source is implemented, but it remains experimental. The non-GPU CI
+runner compiles and packages it; runtime acceptance happens only after the
+matching immutable image is deployed to the K3s T4 node and its smoke checks
+pass.
 
-```text
-he_looming_sdk==0.6.1
-openfhe==1.5.1.0.24.4
-he-sdk-fides==0.3.1
-```
-
-`he-sdk-fides` là native wheel Python 3.12/Linux x86_64. Wheel chứa Python
-adapter và extension C++ liên kết FIDESlib, patched OpenFHE và CUDA runtime cần
-thiết. NVIDIA driver và GPU phù hợp vẫn do môi trường chạy cung cấp.
-
-## Luồng code
+## Code path
 
 ```mermaid
 flowchart LR
-    APP["Python application"] --> SESSION["HESession.create(backend=...)"]
-    SESSION -->|openfhe| CPU["OpenFHEBackend"]
-    SESSION -->|fides| GPU["he_sdk_fides.FidesBackend"]
-    GPU --> BINDING["pybind11 _native"]
-    BINDING --> CPP["gpu/worker/src/fides_backend.cpp"]
-    CPP --> FIDES["FIDESlib + patched OpenFHE + CUDA"]
+    APP["Application"] --> SESSION["he_sdk.HESession"]
+    SESSION --> FACTORY["he_sdk.backends.create_backend"]
+    FACTORY --> ADAPTER["he_sdk_fides.FidesBackend"]
+    ADAPTER --> NATIVE["he_sdk_fides._native<br/>pybind11 NativeSession"]
+    NATIVE --> SHARED["he_gpu_backend static library"]
+    SHARED --> FIDES["FIDESlib + patched OpenFHE + CUDA"]
 ```
 
-Hai package native được cài chung nhưng được import lazy. Một Python process
-chỉ được chọn một backend vì stock OpenFHE và patched OpenFHE không an toàn khi
-được load cùng process. Muốn đổi backend, chạy process Python mới:
+`he-gpu-worker`, `he-gpu-demo`, and the Python extension all link the same
+`he_gpu_backend` target. The operation implementations remain in
+`gpu/worker/src/fides_backend.cpp`.
 
-```sh
-HE_SDK_BACKEND=openfhe python3 examples/sdk/full_session_showcase.py
-HE_SDK_BACKEND=fides python3 examples/sdk/full_session_showcase.py
-```
+The plugin now has two explicit modes:
 
-SDK không tự fallback GPU sang CPU.
+- a trusted local trial where the native session owns context and keys; and
+- a compute-only workspace mode used by Kubernetes Jobs. It reads OpenFHE
+  public/evaluation material and ciphertexts, invokes `he-gpu-worker`, and
+  never receives a secret key.
 
-## Build và publish
+## Packages and compatibility boundary
 
-`build-fides-sdk-wheel` dùng CUDA builder, build native extension rồi chạy
-`auditwheel repair` để tạo wheel `manylinux_2_39_x86_64`. GitLab runner chỉ
-kiểm tra compile/package; kiểm tra runtime vẫn chạy trên T4.
-
-Release FIDES phải có trên PyPI trước core vì core phụ thuộc chính xác vào
-`he-sdk-fides==0.3.1`.
-
-Tạo GitLab variable bảo vệ sau trước lần publish đầu tiên:
+Keep these packages separate:
 
 ```text
-FIDES_PYPI_API_TOKEN = token PyPI có quyền tạo/publish project he-sdk-fides
+he_looming_sdk==0.5.1  backend-neutral core and workspace worker contract
+he-sdk-fides==0.2.0    Linux/Python/CUDA native plugin
 ```
 
-Sau khi pipeline `main` thành công, publish theo thứ tự:
+Do not install the stock `openfhe` Python wheel in the FIDES environment. The
+plugin is compiled with FIDESlib's matching patched OpenFHE, CUDA 12.9.1 and
+the configured `FIDESLIB_ARCH` (`75-real` for the T4).
+
+The generated native wheel is platform- and Python-ABI-specific. Build it with
+the same Python minor version used on the target server; the current CI builder
+uses Ubuntu 24.04/Python 3.12.
+
+## CI build and acceptance
+
+The pipeline has four relevant paths:
+
+1. `build-sdk-wheel` builds the core wheel.
+2. `build-fides-sdk-wheel` builds the native plugin in the CUDA Docker builder.
+3. `test-he` runs the Python and source-contract tests without executing CUDA.
+4. `publish-fides-sdk-gitlab` uploads the compiled plugin from a matching
+   `fides-v...` tag.
+
+There is deliberately no GPU runtime test in GitLab CI because the self-hosted
+runner has no GPU. A successful pipeline proves that the source compiles and
+the package/image can be produced; it does not prove CUDA runtime correctness.
+Deploy `gpu-<CI_COMMIT_SHORT_SHA>` to the K3s T4 node for that acceptance gate.
+
+For a build-only artifact on `main`, manually start `build-fides-sdk-wheel`.
+The wheel is also stored under `/opt/he-sdk-fides-wheel` in the GPU image.
+
+To release version `0.2.0`, publish `he_looming_sdk==0.5.1` first because it is the
+plugin's exact core dependency. Then push:
 
 ```sh
-git fetch origin main
-git tag -a fides-v0.3.1 origin/main -m "Publish he-sdk-fides 0.3.1"
-git push origin fides-v0.3.1
+git tag -a fides-v0.2.0 -m "Publish he-sdk-fides 0.2.0"
+git push origin fides-v0.2.0
 ```
 
-Chờ cả `publish-fides-sdk-gitlab` và `publish-fides-sdk-pypi` thành công rồi
-mới tạo tag core `v0.6.1`; xem `he-sdk-pypi.md`.
+This release is a staging artifact until `HE_SDK_BACKEND=fides python -m
+he_sdk.smoke` succeeds on the target GPU server. Record the immutable image
+tag, Pod events and logs for any failure before changing the implementation.
 
-## Giới hạn hiện tại
+## Install on the GPU server
 
-- Python 3.12, Linux x86_64, glibc 2.39 hoặc mới hơn;
-- CUDA build target `75-real` cho NVIDIA T4;
-- không tự cài NVIDIA driver;
-- không load CPU OpenFHE và GPU FIDES native backend trong cùng process;
-- GPU runtime acceptance vẫn phải chạy trên GPU server.
+Prepare the read-only GitLab deploy token as described in
+`he-sdk-gitlab-registry.md`. Install both private packages without the OpenFHE
+extra:
+
+```sh
+SDK_INDEX="https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple"
+
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install --no-deps --index-url "$SDK_INDEX" he_looming_sdk==0.5.1
+python -m pip install --no-deps --index-url "$SDK_INDEX" he-sdk-fides==0.2.0
+```
+
+The commands assume the deploy-token credentials are stored in `~/.netrc`.
+Run the complete contract:
+
+```sh
+HE_SDK_BACKEND=fides python -m he_sdk.smoke
+```
+
+`examples/sdk/local_fides.py` can also be run from a repository checkout; the
+example directory is not installed by the core wheel.
+
+Expected smoke output contains:
+
+```text
+SDK_SMOKE_RESULT={"backend":"fides",...,"status":"PASS"}
+```
+
+## Deliberate non-goals
+
+- no automatic CPU/GPU selection;
+- no silent CPU fallback;
+- no remote client, scheduler or job controller;
+- no mixing of ciphertexts from different sessions;
+- no bootstrap, comparison or automatic chunk manager;
+- no claim of portability beyond the CI-tested Python/CUDA/Linux profile.

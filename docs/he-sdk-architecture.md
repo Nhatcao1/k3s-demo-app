@@ -36,7 +36,7 @@ flowchart TD
 | 1. Consumer | `examples/sdk/local_openfhe.py`, application code của người dùng | Chuẩn bị plaintext, gọi SDK và giải mã trong trust boundary của client. Notebook, Data Studio hay workflow engine là integration của consumer, không phải code SDK. |
 | 2. Public SDK API | `HESession`, `EncryptedVector`, `EncryptedScalar` | Đã có local API cho `encrypt`, `decrypt`, `add`, `subtract`, `multiply`, `square`, `sum`, `mean`, `variance`, cùng `save`, `load`, `open_workspace` cho filesystem handoff. Raw OpenFHE object được giữ trong opaque handle. Chưa có `compare` và chưa có lựa chọn remote. |
 | 3. Contracts & guardrails | `CKKSConfig`; `OperationContract` và `CapabilitySet` trong `he_sdk/contracts.py`; `CiphertextMetadata`; validation trong `HESession` | Đã kiểm tra input range/shape, session, context fingerprint, key bundle, backend, scheme, serialization version và depth budget. Đây là vài dataclass nhỏ, chưa phải execution planner hay compatibility service độc lập. |
-| 4. Backend port & adapter | `HEBackend` cùng factory trong `he_sdk/backends/base.py`; `OpenFHEBackend`, `openfhe_cpu/runtime.py`, native `he-sdk-fides` component | `HESession` dispatch trực tiếp tới backend được chọn. Một lệnh cài lấy cả hai backend, nhưng mỗi process chỉ load một native runtime. FIDES vẫn có T4 acceptance gate riêng. HEIR adapter không tồn tại. Không auto-route CPU/GPU và không fallback âm thầm. |
+| 4. Backend port & adapter | `HEBackend` cùng factory trong `he_sdk/backends/base.py`; `OpenFHEBackend`, `openfhe_cpu/runtime.py`, optional `he-sdk-fides` plugin | `HESession` dispatch trực tiếp tới backend được chọn. OpenFHE local đã ổn định; FIDES native plugin source đã implement nhưng chỉ được support sau T4 build/equivalence gate. HEIR adapter không tồn tại. Không auto-route CPU/GPU và không fallback âm thầm. |
 
 Một số tên hiện nghe mạnh hơn implementation thực tế:
 
@@ -86,7 +86,7 @@ một deployment path song song, có thể trở thành remote backend sau này.
 | Client / Developer Plane | Giữ, nhưng gọi đơn giản là **Consumer**. SDK không chịu trách nhiệm cho Notebook/Data Studio/workflow runtime. |
 | SDK Public Contract | Giữ. Chỉ công bố các hàm đã chạy và test; bỏ `compare()` khỏi v1. |
 | SDK Execution Core | Thu nhỏ thành **Contracts & guardrails**. Giữ validation, operation contract và capability declaration; chưa tách planner, registry hay chunk manager thành subsystem. |
-| Backend Adapter Layer | Giữ. OpenFHE và FIDES được cài cùng SDK; FIDES là native component có acceptance gate riêng. HEIR vẫn là roadmap. |
+| Backend Adapter Layer | Giữ. OpenFHE local là core backend. FIDES là optional native plugin có acceptance gate riêng; HEIR vẫn là roadmap. |
 | Remote Execution Control Plane | Đưa ra ngoài SDK và chưa xây. Nếu cần remote trước, bắt đầu bằng một `RemoteBackend` đồng bộ gọi API hiện có. |
 | Worker & Artifact Plane | Đưa vào evaluator platform, không phải package SDK. Chỉ thêm object storage/job manifest khi payload, timeout hoặc retry thực sự đòi hỏi. |
 

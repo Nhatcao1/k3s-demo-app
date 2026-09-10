@@ -12,8 +12,8 @@ SDK hiện hỗ trợ:
 - Lưu và đọc ciphertext bằng SDK workspace.
 - Chỉ cấp quyền giải mã kết quả tổng hợp cho analyst.
 
-Backend CPU dùng OpenFHE; backend GPU dùng FIDESlib. Một lệnh cài đặt lấy cả
-hai component nhưng SDK không tự động chuyển CPU/GPU.
+Backend ổn định hiện tại là OpenFHE chạy CPU. FIDESlib/GPU vẫn là backend tùy
+chọn đang chờ kiểm thử trên GPU server; SDK không tự động chuyển CPU/GPU.
 
 ## 1. Cài đặt
 
@@ -23,7 +23,7 @@ Khuyến nghị tạo virtual environment riêng:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk==0.6.1"
+python -m pip install "he_looming_sdk[openfhe]==0.5.1"
 ```
 
 Kiểm tra package:
@@ -35,7 +35,7 @@ python -c "import he_sdk; print(he_sdk.__version__)"
 Kết quả mong đợi:
 
 ```text
-0.6.1
+0.5.1
 ```
 
 ## Kịch bản hiển thị toàn bộ lifecycle
@@ -54,9 +54,8 @@ local FIDES serialization và recipient/PRE chưa được hỗ trợ nên file 
 `SKIP` rõ ràng cho hai phần này.
 
 OpenFHE wheel được dùng chủ yếu trên Linux. Nếu máy cá nhân không cài được
-package, hãy chạy phần HE trên Python 3.12/Linux server, Docker image hoặc
-GitLab runner. GPU còn cần NVIDIA driver/CUDA host tương thích. Mỗi process chỉ
-chọn một backend; muốn đổi CPU/GPU thì chạy process Python mới.
+extra `openfhe`, hãy chạy phần HE trên Linux server, Docker image hoặc GitLab
+runner. Không cần build OpenFHE trên laptop chỉ để sử dụng SDK.
 
 ## 2. Ví dụ cơ bản
 

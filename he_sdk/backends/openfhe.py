@@ -86,8 +86,8 @@ class OpenFHEBackend:
             module = importlib.import_module("openfhe")
         except (ImportError, OSError) as error:
             raise BackendUnavailableError(
-                "The bundled OpenFHE dependency is unavailable. Reinstall "
-                "he_looming_sdk in a supported Python 3.12/Linux environment."
+                "OpenFHE is not installed. Install the 'openfhe' SDK extra "
+                "on supported Linux, or run this integration in GitLab CI."
             ) from error
 
         if not self._lease_lock.acquire(blocking=False):
@@ -127,8 +127,8 @@ class OpenFHEBackend:
             module = importlib.import_module("openfhe")
         except (ImportError, OSError) as error:
             raise BackendUnavailableError(
-                "The bundled OpenFHE dependency is unavailable. Reinstall "
-                "he_looming_sdk in a supported Python 3.12/Linux environment."
+                "OpenFHE is not installed. Install the 'openfhe' SDK extra "
+                "on supported Linux, or run this integration in GitLab CI."
             ) from error
 
         if config.fingerprint != CKKSConfig.profile(
