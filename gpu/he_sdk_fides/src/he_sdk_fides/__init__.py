@@ -1,6 +1,6 @@
-"""Optional FIDESlib/CUDA backend plugin for :mod:`he_sdk`."""
+"""FIDESlib/CUDA backend installed with :mod:`he_sdk`."""
 
 from he_sdk_fides.backend import FidesBackend
 
 __all__ = ["FidesBackend"]
-__version__ = "0.2.0"
+__version__ = "0.3.1"

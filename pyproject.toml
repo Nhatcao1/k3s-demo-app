@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "he_looming_sdk"
-version = "0.5.1"
+version = "0.6.1"
 description = "Local homomorphic-encryption SDK with OpenFHE and FIDES execution backends"
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = []
-
-[project.optional-dependencies]
-openfhe = ["openfhe==1.5.1.0.24.4"]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "openfhe==1.5.1.0.24.4",
+  "he-sdk-fides==0.3.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -1,78 +1,65 @@
-# Publish `he_looming_sdk` to PyPI
+# Publish SDK lên PyPI
 
-The distribution name is `he_looming_sdk`; PyPI normalizes and displays it as
-`he-looming-sdk`. The installed Python module remains `he_sdk`, so developer
-code continues to use:
+Release `0.6.1` cho người dùng một lệnh cài cả CPU và GPU backend:
 
-```python
-from he_sdk import HESession
+```sh
+python3 -m pip install he_looming_sdk==0.6.1
 ```
 
-This staging release deliberately does not declare a license. PyPI accepts
-packages without license metadata, but publishing there does not grant users a
-license to copy, modify, or redistribute the source.
+## GitLab variables
 
-## One-time PyPI preparation
-
-Before pushing the first release tag, create a PyPI API token. Because the
-`he-looming-sdk` project does not exist yet, the first token must be scoped to
-the entire PyPI account. After the first successful release, replace it with a
-new token scoped only to the created `he-looming-sdk` project.
-
-In the GitLab project, open **Settings > CI/CD > Variables** and add:
+Hai project PyPI dùng hai token bảo vệ:
 
 ```text
-Key: PYPI_API_TOKEN
-Value: pypi-<the token copied from PyPI>
-Type: Variable
-Visibility: Masked and hidden
-Protect variable: enabled
-Expand variable reference: disabled
+PYPI_API_TOKEN        token của project he-looming-sdk
+FIDES_PYPI_API_TOKEN  token có quyền publish project he-sdk-fides
 ```
 
-Protect the GitLab tag pattern `v*` and allow only Maintainers to create it.
-The protected token is otherwise unavailable to the release pipeline. Never
-put the token in `.gitlab-ci.yml`, a shell command, repository file, or job log.
+Đặt cả hai là masked, hidden, protected và tắt variable expansion. Bảo vệ tag
+patterns `v*` và `fides-v*`; không đưa token vào repository hoặc log.
 
-The project name was checked against the PyPI JSON API before this release and
-was not registered. The `publish-sdk-pypi` job authenticates as `__token__`
-with `PYPI_API_TOKEN`; the variable is required only in the tag pipeline.
+## Thứ tự release
 
-## Release
+Version trong tag phải khớp chính xác với `pyproject.toml`. Luôn tag cùng commit
+đã kiểm tra trên `origin/main`.
 
-First merge and verify the `main` pipeline. Protect the `v*` tag pattern so
-only Maintainers can publish, then tag the exact commit on `origin/main`:
+1. Publish native dependency trước:
 
 ```sh
 git fetch origin main
-git tag -a v0.3.1 origin/main -m "Publish he_looming_sdk 0.3.1"
-git push origin v0.3.1
+git tag -a fides-v0.3.1 origin/main -m "Publish he-sdk-fides 0.3.1"
+git push origin fides-v0.3.1
 ```
 
-The same tag builds one wheel and publishes it to both public PyPI and the
-project's private GitLab package registry. The tag must match the version in
-`pyproject.toml`; released versions are immutable, so bump the version before
-every later release.
+2. Chờ hai job publish FIDES thành công. Sau đó publish package chính:
 
-## Install
+```sh
+git fetch origin main
+git tag -a v0.6.1 origin/main -m "Publish he_looming_sdk 0.6.1"
+git push origin v0.6.1
+```
 
-After both publish jobs succeed:
+Không đẩy hai tag cùng lúc: pip phải tìm thấy `he-sdk-fides==0.3.1` khi kiểm
+tra/cài `he_looming_sdk==0.6.1`.
+
+## Kiểm tra sau release
+
+Trên Python 3.12/Linux x86_64:
 
 ```sh
 python3 -m venv .venv
-. .venv/bin/activate
+source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install he_looming_sdk==0.3.1
+python -m pip install he_looming_sdk==0.6.1
 python -c 'import he_sdk; print(he_sdk.__version__)'
+HE_SDK_BACKEND=openfhe python -m he_sdk.smoke
 ```
 
-The core package has no mandatory dependency. For the OpenFHE local backend on
-a supported Linux server, also install:
+Trên GPU host, dùng một process mới:
 
 ```sh
-python -m pip install openfhe==1.5.1.0.24.4
+HE_SDK_BACKEND=fides python -m he_sdk.smoke
 ```
 
-Do not publish `he-sdk-fides` to public PyPI yet. Its native wheel remains in
-the private GitLab registry and the immutable GPU image until it passes runtime
-acceptance on the K3s T4 node.
+Package cài native components nhưng không cài NVIDIA driver hay tạo GPU cho
+môi trường.

@@ -29,11 +29,10 @@ the conditions for introducing a remote backend or asynchronous job platform.
   `HESession.open_workspace()` provide a versioned, checksummed filesystem
   handoff. The compute-only session loads public/evaluation material and
   ciphertext but has no secret key, so the SDK rejects decryption there.
-- FIDES remains available through the existing GPU image/service. The optional
-  local `he-sdk-fides` plugin source and pybind11 session are implemented. The
+- FIDES remains available through the existing GPU image/service. The local
+  `he-sdk-fides` native component and pybind11 session are implemented. The
   non-GPU CI runner compiles it, while runtime acceptance happens after
-  deployment on the K3s T4 node; without the installed plugin, selection
-  remains an explicit `BackendUnavailableError`.
+  deployment on the K3s T4 node.
 
 ## Install and run
 
@@ -54,12 +53,14 @@ A version tag publishes the `he_looming_sdk` wheel to public PyPI and to the
 project's private GitLab PyPI registry. See `he-sdk-pypi.md` for the public
 release and `he-sdk-gitlab-registry.md` for the private fallback.
 
-Run the native integration on supported Linux or in GitLab CI:
+Install both CPU and GPU backends on supported Python 3.12/Linux with one
+command, then select exactly one backend per Python process:
 
 ```sh
-python3 -m pip install '.[openfhe]'
-python3 examples/sdk/local_openfhe.py
-python3 -m unittest tests.test_sdk_openfhe_integration -v
+python3 -m pip install he_looming_sdk==0.6.1
+HE_SDK_BACKEND=openfhe python3 examples/sdk/full_session_showcase.py
+# In a fresh process on a CUDA host:
+HE_SDK_BACKEND=fides python3 examples/sdk/full_session_showcase.py
 ```
 
 For the SDK-only two-kernel walkthrough, run
@@ -67,9 +68,8 @@ For the SDK-only two-kernel walkthrough, run
 `examples/notebooks/02_compute_encrypted.ipynb`. The artifact contract and
 security boundary are documented in `he-sdk-workspace.md`.
 
-Do not install CUDA, FIDESlib, or patched OpenFHE on a low-powered development
-laptop. Their native build and runtime checks belong in CI and on the T4
-server.
+The package supplies the native Python components. It does not supply an
+NVIDIA driver or physical GPU; those remain environment prerequisites.
 
 On K3s, use the companion `k3s-demo-gitops/scripts/sdk/run-smoke.sh` helper.
 It installs the embedded wheel into a temporary directory and runs
@@ -84,8 +84,8 @@ service calls it through `backends/openfhe_python.py`.
 For a GPU operation, put the HE calculation in
 `gpu/worker/src/fides_backend.cpp`. The existing worker is the service wrapper.
 The `gpu/he_sdk_fides/native/bindings.cpp` extension is the local SDK wrapper
-over that same C++ class. See `he-sdk-fides.md` for its separate wheel, CI gate,
-and GPU-server installation path.
+over that same C++ class. See `he-sdk-fides.md` for its native wheel and release
+gate. It is installed transitively by the top-level package.
 
 An operation is complete only after its contract, local wrapper, service
 wrapper, decrypted correctness test, immutable image build, and K3s smoke test
