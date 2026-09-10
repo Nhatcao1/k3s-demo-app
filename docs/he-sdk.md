@@ -53,13 +53,15 @@ A version tag publishes the `he_looming_sdk` wheel to public PyPI and to the
 project's private GitLab PyPI registry. See `he-sdk-pypi.md` for the public
 release and `he-sdk-gitlab-registry.md` for the private fallback.
 
-Install both CPU and GPU backends on supported Python 3.12/Linux with one
-command, then select exactly one backend per Python process:
+Install exactly one native backend in each supported Python 3.12/Linux
+environment:
 
 ```sh
-python3 -m pip install he_looming_sdk==0.6.1
+python3 -m pip install "he_looming_sdk[cpu]==0.6.1"
 HE_SDK_BACKEND=openfhe python3 examples/sdk/full_session_showcase.py
-# In a fresh process on a CUDA host:
+
+# Run in a separate virtual environment on a CUDA host:
+python3 -m pip install "he_looming_sdk[gpu]==0.6.1"
 HE_SDK_BACKEND=fides python3 examples/sdk/full_session_showcase.py
 ```
 
@@ -68,8 +70,9 @@ For the SDK-only two-kernel walkthrough, run
 `examples/notebooks/02_compute_encrypted.ipynb`. The artifact contract and
 security boundary are documented in `he-sdk-workspace.md`.
 
-The package supplies the native Python components. It does not supply an
-NVIDIA driver or physical GPU; those remain environment prerequisites.
+The CPU extra installs the public OpenFHE binding. The GPU extra installs the
+separately built `he-sdk-fides` wheel. Neither extra supplies an NVIDIA driver
+or physical GPU; those remain environment prerequisites.
 
 On K3s, use the companion `k3s-demo-gitops/scripts/sdk/run-smoke.sh` helper.
 It installs the embedded wheel into a temporary directory and runs
@@ -85,7 +88,7 @@ For a GPU operation, put the HE calculation in
 `gpu/worker/src/fides_backend.cpp`. The existing worker is the service wrapper.
 The `gpu/he_sdk_fides/native/bindings.cpp` extension is the local SDK wrapper
 over that same C++ class. See `he-sdk-fides.md` for its native wheel and release
-gate. It is installed transitively by the top-level package.
+gate. It is installed transitively only when the `gpu` extra is requested.
 
 An operation is complete only after its contract, local wrapper, service
 wrapper, decrypted correctness test, immutable image build, and K3s smoke test

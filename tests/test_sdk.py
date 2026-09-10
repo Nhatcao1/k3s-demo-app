@@ -174,15 +174,22 @@ class SDKContractTests(unittest.TestCase):
             "he-sdk-workspace-v1",
         )
         self.assertEqual(project["project"]["requires-python"], ">=3.12,<3.13")
+        self.assertEqual(project["project"]["dependencies"], [])
         self.assertEqual(
-            project["project"]["dependencies"],
-            ["openfhe==1.5.1.0.24.4", "he-sdk-fides==0.3.1"],
+            project["project"]["optional-dependencies"],
+            {
+                "cpu": ["openfhe==1.5.1.0.24.4"],
+                "gpu": ["he-sdk-fides==0.3.2"],
+            },
         )
-        self.assertEqual(fides_project["project"]["version"], "0.3.1")
-        self.assertEqual(fides_project["project"]["dependencies"], [])
+        self.assertEqual(fides_project["project"]["version"], "0.3.2")
+        self.assertEqual(
+            fides_project["project"]["dependencies"],
+            ["he_looming_sdk==0.6.1"],
+        )
         self.assertEqual(
             compatibility["fides"]["python_distribution"],
-            "he-sdk-fides==0.3.1",
+            "he-sdk-fides==0.3.2",
         )
 
     def test_process_cannot_mix_stock_and_patched_openfhe(self) -> None:

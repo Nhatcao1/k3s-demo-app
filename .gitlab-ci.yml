@@ -178,6 +178,7 @@ build-sdk-wheel:
     - cd "$SDK_WHEEL_DIR" && sha256sum he_looming_sdk-*.whl > SHA256SUMS && cd ..
     - python -m pip install --no-deps "$SDK_WHEEL_DIR"/*.whl
     - python -I -c 'from he_sdk import CKKSConfig, HESession; print(CKKSConfig.profile("ckks-balanced-v1").fingerprint)'
+    - python -I -c 'from importlib.metadata import requires; r = requires("he_looming_sdk") or []; assert any("extra == \"cpu\"" in x and "openfhe" in x for x in r), r; assert any("extra == \"gpu\"" in x and "he-sdk-fides" in x for x in r), r; print(r)'
   artifacts:
     name: "he-sdk-$CI_COMMIT_SHORT_SHA"
     paths:
@@ -269,7 +270,7 @@ publish-sdk-pypi:
       --python-version 312
       --abi cp312
       --dest /tmp/fides-release-check
-      he-sdk-fides==0.3.1
+      he-sdk-fides==0.3.2
     - python -m twine check dist/*.whl
     - |
       TWINE_USERNAME=__token__ \

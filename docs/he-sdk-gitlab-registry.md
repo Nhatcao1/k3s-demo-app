@@ -10,7 +10,7 @@ https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi
 Hai tag release kích hoạt hai job private tương ứng:
 
 ```text
-fides-v0.3.1 -> publish-fides-sdk-gitlab
+fides-v0.3.2 -> publish-fides-sdk-gitlab
 v0.6.1       -> publish-sdk-gitlab
 ```
 
@@ -35,9 +35,9 @@ chmod 600 ~/.netrc
 
 Không commit `.netrc` hoặc token.
 
-## Cài một lệnh từ private registry
+## Cài từ private registry
 
-Trên Python 3.12/Linux x86_64:
+GPU environment trên Python 3.12/Linux x86_64:
 
 ```sh
 python3 -m venv .venv
@@ -45,21 +45,31 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  he_looming_sdk==0.6.1
+  "he_looming_sdk[gpu]==0.6.1"
 ```
 
-Pip lấy core và FIDES component từ GitLab; OpenFHE dependency có thể lấy từ
-public PyPI. Không dùng `--no-deps`, nếu không all-in-one installation sẽ bị
-vô hiệu hóa.
+Pip lấy core và FIDES component từ GitLab. Tạo CPU environment riêng; cùng
+index private nhưng chỉ cài OpenFHE extra:
 
-Kiểm tra:
+```sh
+python3 -m venv .venv-cpu
+source .venv-cpu/bin/activate
+python -m pip install --upgrade pip
+python -m pip install \
+  --extra-index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
+  "he_looming_sdk[cpu]==0.6.1"
+```
+
+Không dùng `--no-deps`, nếu không dependency của extra sẽ không được cài.
+
+Kiểm tra trong CPU environment:
 
 ```sh
 python -c 'import he_sdk; print(he_sdk.__version__)'
 HE_SDK_BACKEND=openfhe python -m he_sdk.smoke
 ```
 
-GPU smoke phải chạy ở process mới trên CUDA host:
+GPU smoke chạy trong GPU environment trên CUDA host:
 
 ```sh
 HE_SDK_BACKEND=fides python -m he_sdk.smoke

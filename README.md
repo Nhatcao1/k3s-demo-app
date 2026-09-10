@@ -34,9 +34,8 @@ The two-kernel tutorial is under `examples/notebooks/`; see
 `docs/he-sdk-workspace.md` for the artifact and trust-boundary contract.
 
 GitLab CI builds the wheels and runs native OpenFHE integration tests. The
-public `he_looming_sdk` release depends on both stock OpenFHE-Python and the
-CUDA `he-sdk-fides` component, so a supported Python 3.12/Linux user installs
-both backends with one command. See
+public `he_looming_sdk` release exposes separate `cpu` and `gpu` extras so one
+environment installs only its selected native backend. See
 `docs/he-sdk.md`, `docs/he-sdk-fides.md`, and `compatibility/he-sdk-v1.toml`.
 The current-vs-target layer boundaries and deliberately smaller remote roadmap
 are in `docs/he-sdk-architecture.md`.
@@ -74,11 +73,11 @@ standard openfhe-python              FIDESlib + its patched OpenFHE
 CPU image/process                    CUDA GPU image/process
 ```
 
-The packages may coexist on disk for one-command installation, but never load
-standard OpenFHE and FIDESlib's patched OpenFHE in the same Python process.
-`HESession.create()` loads only the selected backend and rejects changing the
-native backend in that interpreter. Use a fresh Python process to change CPU
-and GPU. The deployed CPU/GPU images remain independent processes.
+Install `he_looming_sdk[cpu]` and `he_looming_sdk[gpu]` in separate Python
+environments. Never load standard OpenFHE and FIDESlib's patched OpenFHE in
+the same Python process. `HESession.create()` rejects changing the native
+backend in an interpreter. The deployed CPU/GPU images remain independent
+processes.
 
 The small operation list is in `common/operations.py`. The seven explicit
 CPU defaults and direct functions live in `openfhe_cpu/runtime.py`, and the
