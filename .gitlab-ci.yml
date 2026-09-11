@@ -50,13 +50,9 @@ validate-files:
   stage: validate
   image: alpine:3.22
   script:
-    - test -f Dockerfile
-    - test -f requirements.txt
-    - test -f api/app.py
-    - test -f backends/openfhe_python.py
-    - test -f backends/openfhe_bgv_demo.py
-    - test -f backends/openfhe_demo.py
-    - test -f backends/openfhe_demo_sum.py
+    - test -f README.md
+    - test -f pyproject.toml
+    - grep -Fq 'openfhe==1.5.1.0.24.4' pyproject.toml
     - test -f common/operations.py
     - test -f openfhe_cpu/runtime.py
     - test -f he_sdk/__init__.py
@@ -71,72 +67,17 @@ validate-files:
     - test -f he_sdk/backends/base.py
     - test -f he_sdk/backends/openfhe.py
     - test -f he_sdk/native_runtime.py
-    - test -f he_worker/__main__.py
-    - test -f he_worker/request.py
-    - test -f he_worker/runner.py
-    - test -f he_worker/postgres.py
-    - test -f scripts/sdk/compare_smoke_results.py
     - test -f compatibility/he-sdk-v1.toml
-    - test -f examples/sdk/local_openfhe.py
-    - test -f examples/sdk/local_fides.py
-    - test -f examples/sdk/pre_result_only.py
-    - test -f examples/sdk/03_analyst_result_only.ipynb
-    - test -f examples/notebooks/01_owner_encrypt.ipynb
-    - test -f examples/notebooks/02_compute_encrypted.ipynb
-    - test -f examples/notebooks/README.md
     - test -f tests/test_sdk.py
-    - test -f tests/test_sdk_fides_plugin.py
-    - test -f tests/test_sdk_smoke_compare.py
     - test -f tests/test_sdk_openfhe_adapter.py
     - test -f tests/test_sdk_openfhe_integration.py
-    - test -f tests/test_sdk_notebooks.py
-    - test -f tests/test_he_worker.py
-    - test -f docs/he-sdk-architecture.md
-    - test -f docs/he-sdk-workspace.md
-    - test -f docs/he-sdk-fides.md
-    - test -f docs/he-sdk-gitlab-registry.md
-    - test -f docs/he-sdk-result-only-pre.md
-    - test -f docs/he-sdk-result-only-pre.mmd
-    - test -f client/cpu_service_demo.py
-    - test -f client/direct_openfhe_cpu_test.py
-    - test -f tests/test_app.py
-    - test -f tests/test_gpu_api.py
-    - test -f tests/test_gpu_source_contract.py
-    - test -f docs/gpu-known-errors.md
-    - test -f compose.postgres.yaml
-    - test -f postgres/Dockerfile
-    - test -f postgres/.dockerignore
-    - test -f postgres/init/001_he_store.sql
-    - test -f postgres/postgres.env.example
-    - grep -Fq 'artifacts_run_path_sha256_uidx' postgres/init/001_he_store.sql
-    - test -f Dockerfile.notebook
-    - test -f Dockerfile.sdk-worker-cpu
-    - test -f gpu/Dockerfile
-    - test -f gpu/Dockerfile.dockerignore
-    - grep -Fq 'FROM builder AS sdk-notebook' gpu/Dockerfile
-    - grep -Fq 'build-he-notebook-gpu:' .gitlab-ci.yml
-    - test -f gpu/api/app.py
-    - test -f gpu/he_sdk_fides/pyproject.toml
-    - test -f gpu/he_sdk_fides/CMakeLists.txt
-    - test -f gpu/he_sdk_fides/native/bindings.cpp
-    - test -f gpu/he_sdk_fides/src/he_sdk_fides/backend.py
-    - test -f gpu/client/simple_test.py || test -f gpu/client/simple_test.txt
-    - test -f gpu/worker/CMakeLists.txt
-    - test -f gpu/worker/src/main.cpp
-    - test -f gpu/worker/src/demo_main.cpp
-    - test -f gpu/worker/src/fides_backend.cpp
-    - test -f gpu/worker/src/fides_backend.hpp
-    - grep -Fq 'openfhe==1.5.1.0.24.4' requirements.txt
-    - grep -Fq 'numpy>=2.0,<3' requirements.txt
-    - grep -Fq 'pandas>=2.2,<3' requirements.txt
-    - test "$(grep -Ev '^[[:space:]]*(#|$)' requirements.txt | wc -l | tr -d ' ')" -eq 3
-    - echo "Required CPU OpenFHE evaluator files exist."
+    - echo "Required core CPU SDK files exist."
 
 test-he:
   stage: test
   image: python:3.12-alpine
   script:
-    - python -m unittest discover -s tests -v
+    - python -m unittest tests.test_sdk tests.test_sdk_openfhe_adapter -v
 
 test-sdk-openfhe:
   stage: test
@@ -149,13 +90,11 @@ test-sdk-openfhe:
         - pyproject.toml
         - compatibility/**/*
         - examples/sdk/**/*
-        - examples/notebooks/**/*
         - he_sdk/**/*
         - openfhe_cpu/**/*
         - tests/test_sdk.py
         - tests/test_sdk_openfhe_adapter.py
         - tests/test_sdk_openfhe_integration.py
-        - tests/test_sdk_notebooks.py
   script:
     - python -c 'import openfhe; print("OpenFHE integration dependency is available")'
     # The pinned OpenFHE Python binding owns process-global context/key state.
