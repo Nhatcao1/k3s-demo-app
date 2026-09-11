@@ -1,19 +1,21 @@
 # Publish SDK lên PyPI
 
-Release `0.6.1` cho người dùng hai extras trên cùng package chính:
+Release core `0.6.2` ưu tiên CPU. GPU là component tùy chọn, phát hành độc lập
+sau khi core đã ổn định:
 
 ```sh
-python3 -m pip install "he_looming_sdk[cpu]==0.6.1"
-python3 -m pip install "he_looming_sdk[gpu]==0.6.1"
+python3 -m pip install "he_looming_sdk[cpu]==0.6.2"
+python3 -m pip install "he_looming_sdk[gpu]==0.6.2"
 ```
 
 Mỗi lệnh phải chạy trong một virtual environment riêng. `cpu` kéo
-`openfhe==1.5.1.0.24.4`; `gpu` kéo `he-sdk-fides==0.3.2`. Extra GPU không tự
+`openfhe==1.5.1.0.24.4`; `gpu` kéo `he-sdk-fides==0.3.3`. Extra GPU không tự
 build native code: project vẫn build và publish FIDES wheel riêng.
 
 ## GitLab variables
 
-Hai project PyPI dùng hai token bảo vệ:
+Core CPU chỉ cần token đầu tiên. FIDES mặc định phát hành lên GitLab Package
+Registry; token thứ hai chỉ dùng nếu sau này public PyPI chấp thuận wheel lớn:
 
 ```text
 PYPI_API_TOKEN        token của project he-looming-sdk
@@ -23,29 +25,31 @@ FIDES_PYPI_API_TOKEN  token có quyền publish project he-sdk-fides
 Đặt cả hai là masked, hidden, protected và tắt variable expansion. Bảo vệ tag
 patterns `v*` và `fides-v*`; không đưa token vào repository hoặc log.
 
-## Thứ tự release
+## Release CPU trước
 
-Version trong tag phải khớp chính xác với `pyproject.toml`. Luôn tag cùng commit
-đã kiểm tra trên `origin/main`.
-
-1. Publish native dependency trước:
+Version trong tag phải khớp chính xác với `pyproject.toml`. Core không chờ FIDES
+và pipeline core không tải thử package GPU từ public PyPI:
 
 ```sh
 git fetch origin main
-git tag -a fides-v0.3.2 origin/main -m "Publish he-sdk-fides 0.3.2"
-git push origin fides-v0.3.2
+git tag -a v0.6.2 origin/main -m "Publish he_looming_sdk 0.6.2"
+git push origin v0.6.2
 ```
 
-2. Chờ hai job publish FIDES thành công. Sau đó publish package chính:
+Tag này build wheel core, cài thử chính wheel đó với extra `[cpu]`, import
+`openfhe`, rồi publish lên GitLab registry và public PyPI.
+
+## GPU sau, khi cần
 
 ```sh
 git fetch origin main
-git tag -a v0.6.1 origin/main -m "Publish he_looming_sdk 0.6.1"
-git push origin v0.6.1
+git tag -a fides-v0.3.3 origin/main -m "Publish he-sdk-fides 0.3.3"
+git push origin fides-v0.3.3
 ```
 
-Không đẩy hai tag cùng lúc: pip phải tìm thấy `he-sdk-fides==0.3.2` khi người
-dùng cài `he_looming_sdk[gpu]==0.6.1`.
+GPU build/publish lỗi không ảnh hưởng package CPU đã phát hành. Job GitLab
+Registry chạy tự động; job public PyPI là manual/optional vì wheel hiện lớn hơn
+giới hạn mặc định của PyPI.
 
 ## Kiểm tra sau release
 
@@ -55,7 +59,7 @@ Trên Python 3.12/Linux x86_64:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk[cpu]==0.6.1"
+python -m pip install "he_looming_sdk[cpu]==0.6.2"
 python -c 'import he_sdk; print(he_sdk.__version__)'
 HE_SDK_BACKEND=openfhe python -m he_sdk.smoke
 ```
@@ -66,7 +70,9 @@ Trên GPU host, tạo environment riêng:
 python3 -m venv .venv-gpu
 source .venv-gpu/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk[gpu]==0.6.1"
+python -m pip install \
+  --extra-index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
+  "he_looming_sdk[gpu]==0.6.2"
 HE_SDK_BACKEND=fides python -m he_sdk.smoke
 ```
 

@@ -1,17 +1,17 @@
 # FIDES backend trong package SDK
 
-`he_looming_sdk==0.6.1` cung cấp extra GPU, nhưng native FIDES vẫn là một
+`he_looming_sdk==0.6.2` cung cấp extra GPU, nhưng native FIDES vẫn là một
 distribution riêng do CI của project build:
 
 ```sh
-python3 -m pip install "he_looming_sdk[gpu]==0.6.1"
+python3 -m pip install "he_looming_sdk[gpu]==0.6.2"
 ```
 
 Pip cài hai distribution sau trong GPU environment:
 
 ```text
-he_looming_sdk==0.6.1
-he-sdk-fides==0.3.2
+he_looming_sdk==0.6.2
+he-sdk-fides==0.3.3
 ```
 
 `he-sdk-fides` là native wheel Python 3.12/Linux x86_64. Wheel chứa Python
@@ -34,10 +34,10 @@ Không cài extra `cpu` trong GPU environment. Stock OpenFHE và patched OpenFHE
 không an toàn khi được load cùng process. Dùng hai virtual environment riêng:
 
 ```sh
-python3 -m pip install "he_looming_sdk[cpu]==0.6.1"
+python3 -m pip install "he_looming_sdk[cpu]==0.6.2"
 HE_SDK_BACKEND=openfhe python3 examples/sdk/full_session_showcase.py
 
-python3 -m pip install "he_looming_sdk[gpu]==0.6.1"
+python3 -m pip install "he_looming_sdk[gpu]==0.6.2"
 HE_SDK_BACKEND=fides python3 examples/sdk/full_session_showcase.py
 ```
 
@@ -49,11 +49,11 @@ SDK không tự fallback GPU sang CPU.
 `auditwheel repair` để tạo wheel `manylinux_2_39_x86_64`. GitLab runner chỉ
 kiểm tra compile/package; kiểm tra runtime vẫn chạy trên T4.
 
-Release FIDES phải có trên PyPI trước core nếu public `gpu` extra được cam kết
-hoạt động. Extra chỉ yêu cầu pip tải plugin; nó không tự build hoặc publish
-native wheel.
+Core CPU được release độc lập trước. Extra GPU chỉ yêu cầu pip tải plugin; nó
+không tự build hoặc publish native wheel.
 
-Tạo GitLab variable bảo vệ sau trước lần publish đầu tiên:
+FIDES mặc định publish lên GitLab Package Registry bằng `CI_JOB_TOKEN`. Chỉ tạo
+variable sau nếu chủ động chạy job public PyPI dạng manual:
 
 ```text
 FIDES_PYPI_API_TOKEN = token PyPI có quyền tạo/publish project he-sdk-fides
@@ -63,12 +63,11 @@ Sau khi pipeline `main` thành công, publish theo thứ tự:
 
 ```sh
 git fetch origin main
-git tag -a fides-v0.3.2 origin/main -m "Publish he-sdk-fides 0.3.2"
-git push origin fides-v0.3.2
+git tag -a fides-v0.3.3 origin/main -m "Publish he-sdk-fides 0.3.3"
+git push origin fides-v0.3.3
 ```
 
-Chờ cả `publish-fides-sdk-gitlab` và `publish-fides-sdk-pypi` thành công rồi
-mới tạo tag core `v0.6.1`; xem `he-sdk-pypi.md`.
+Tag GPU không chặn hoặc thay đổi core `v0.6.2`; xem `he-sdk-pypi.md`.
 
 ## Giới hạn hiện tại
 

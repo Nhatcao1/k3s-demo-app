@@ -57,11 +57,11 @@ Install exactly one native backend in each supported Python 3.12/Linux
 environment:
 
 ```sh
-python3 -m pip install "he_looming_sdk[cpu]==0.6.1"
+python3 -m pip install "he_looming_sdk[cpu]==0.6.2"
 HE_SDK_BACKEND=openfhe python3 examples/sdk/full_session_showcase.py
 
 # Run in a separate virtual environment on a CUDA host:
-python3 -m pip install "he_looming_sdk[gpu]==0.6.1"
+python3 -m pip install "he_looming_sdk[gpu]==0.6.2"
 HE_SDK_BACKEND=fides python3 examples/sdk/full_session_showcase.py
 ```
 
