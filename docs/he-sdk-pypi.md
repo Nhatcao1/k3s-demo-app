@@ -1,11 +1,11 @@
 # Publish SDK lên PyPI
 
-Release core `0.6.2` ưu tiên CPU. GPU là component tùy chọn, phát hành độc lập
+Release core `0.6.3` ưu tiên CPU. GPU là component tùy chọn, phát hành độc lập
 sau khi core đã ổn định:
 
 ```sh
-python3 -m pip install "he_looming_sdk[cpu]==0.6.2"
-python3 -m pip install "he_looming_sdk[gpu]==0.6.2"
+python3 -m pip install "he_looming_sdk[cpu]==0.6.3"
+python3 -m pip install "he_looming_sdk[gpu]==0.6.3"
 ```
 
 Mỗi lệnh phải chạy trong một virtual environment riêng. `cpu` kéo
@@ -32,8 +32,8 @@ và pipeline core không tải thử package GPU từ public PyPI:
 
 ```sh
 git fetch origin main
-git tag -a v0.6.2 origin/main -m "Publish he_looming_sdk 0.6.2"
-git push origin v0.6.2
+git tag -a v0.6.3 origin/main -m "Publish he_looming_sdk 0.6.3"
+git push origin v0.6.3
 ```
 
 Tag này build wheel core, cài thử chính wheel đó với extra `[cpu]`, import
@@ -59,7 +59,7 @@ Trên Python 3.12/Linux x86_64:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk[cpu]==0.6.2"
+python -m pip install "he_looming_sdk[cpu]==0.6.3"
 python -c 'import he_sdk; print(he_sdk.__version__)'
 HE_SDK_BACKEND=openfhe python -m he_sdk.smoke
 ```
@@ -72,7 +72,7 @@ source .venv-gpu/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  "he_looming_sdk[gpu]==0.6.2"
+  "he_looming_sdk[gpu]==0.6.3"
 HE_SDK_BACKEND=fides python -m he_sdk.smoke
 ```
 

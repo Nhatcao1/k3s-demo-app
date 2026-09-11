@@ -185,7 +185,7 @@ class SDKContractTests(unittest.TestCase):
         self.assertEqual(fides_project["project"]["version"], "0.3.3")
         self.assertEqual(
             fides_project["project"]["dependencies"],
-            ["he_looming_sdk>=0.6.2,<0.7"],
+            ["he_looming_sdk>=0.6.3,<0.7"],
         )
         self.assertEqual(
             compatibility["fides"]["python_distribution"],

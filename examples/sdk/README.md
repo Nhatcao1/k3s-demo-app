@@ -23,7 +23,7 @@ Khuyến nghị tạo virtual environment riêng:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk==0.6.2"
+python -m pip install "he_looming_sdk==0.6.3"
 ```
 
 Kiểm tra package:
@@ -35,7 +35,7 @@ python -c "import he_sdk; print(he_sdk.__version__)"
 Kết quả mong đợi:
 
 ```text
-0.6.2
+0.6.3
 ```
 
 ## Kịch bản hiển thị toàn bộ lifecycle

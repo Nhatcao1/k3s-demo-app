@@ -1,16 +1,16 @@
 # FIDES backend trong package SDK
 
-`he_looming_sdk==0.6.2` cung cấp extra GPU, nhưng native FIDES vẫn là một
+`he_looming_sdk==0.6.3` cung cấp extra GPU, nhưng native FIDES vẫn là một
 distribution riêng do CI của project build:
 
 ```sh
-python3 -m pip install "he_looming_sdk[gpu]==0.6.2"
+python3 -m pip install "he_looming_sdk[gpu]==0.6.3"
 ```
 
 Pip cài hai distribution sau trong GPU environment:
 
 ```text
-he_looming_sdk==0.6.2
+he_looming_sdk==0.6.3
 he-sdk-fides==0.3.3
 ```
 
@@ -34,10 +34,10 @@ Không cài extra `cpu` trong GPU environment. Stock OpenFHE và patched OpenFHE
 không an toàn khi được load cùng process. Dùng hai virtual environment riêng:
 
 ```sh
-python3 -m pip install "he_looming_sdk[cpu]==0.6.2"
+python3 -m pip install "he_looming_sdk[cpu]==0.6.3"
 HE_SDK_BACKEND=openfhe python3 examples/sdk/full_session_showcase.py
 
-python3 -m pip install "he_looming_sdk[gpu]==0.6.2"
+python3 -m pip install "he_looming_sdk[gpu]==0.6.3"
 HE_SDK_BACKEND=fides python3 examples/sdk/full_session_showcase.py
 ```
 
@@ -67,7 +67,7 @@ git tag -a fides-v0.3.3 origin/main -m "Publish he-sdk-fides 0.3.3"
 git push origin fides-v0.3.3
 ```
 
-Tag GPU không chặn hoặc thay đổi core `v0.6.2`; xem `he-sdk-pypi.md`.
+Tag GPU không chặn hoặc thay đổi core `v0.6.3`; xem `he-sdk-pypi.md`.
 
 ## Giới hạn hiện tại
 
