@@ -7,6 +7,48 @@ reuses `openfhe_cpu/runtime.py`, which is the same function layer used by the
 CPU HTTP evaluator. Application developers therefore get a different wrapper,
 not a second implementation of the HE calculations.
 
+### Install the CPU package
+
+Current prerequisites:
+
+- Linux x86_64;
+- Python 3.12 (`>=3.12,<3.13`);
+- the GNU OpenMP runtime, provided by the Ubuntu/Debian package `libgomp1`.
+
+On Ubuntu/Debian, install the system prerequisite before the Python package:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y libgomp1 python3.12-venv
+
+python3.12 -m venv .venv-he
+source .venv-he/bin/activate
+python -m pip install --upgrade pip
+python -m pip install "he_looming_sdk[cpu]==0.6.3"
+```
+
+On Google Colab:
+
+```python
+!apt-get update -qq
+!apt-get install -y libgomp1
+!python -m pip install --upgrade pip
+!python -m pip install "he_looming_sdk[cpu]==0.6.3"
+```
+
+Verify the installation:
+
+```python
+import openfhe
+import he_sdk
+
+print(he_sdk.__version__)
+```
+
+The `[cpu]` extra installs the pinned `openfhe` Python dependency. Do not install
+`openfhe` separately. The GPU/FIDES extra is optional and is not part of this
+CPU-first installation path.
+
 ```python
 from he_sdk import HESession
 
