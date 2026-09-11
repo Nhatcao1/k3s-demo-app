@@ -44,8 +44,8 @@ File `full_session_showcase.py` in ra input, ciphertext wrapper, expected output
 decrypted output, sai số và thời gian cho tất cả phép toán hiện có:
 
 ```bash
-HE_SDK_BACKEND=openfhe python examples/sdk/full_session_showcase.py
-HE_SDK_BACKEND=fides python examples/sdk/full_session_showcase.py
+python examples/sdk/full_session_showcase.py --backend openfhe
+python examples/sdk/full_session_showcase.py --backend fides
 ```
 
 `openfhe` còn minh họa `save/load`, mở một compute-only session từ workspace,

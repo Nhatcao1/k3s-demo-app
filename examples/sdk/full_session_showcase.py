@@ -1,25 +1,52 @@
 #!/usr/bin/env python3
-"""Simple showcase of every public HE SDK method currently implemented."""
+"""Run every public HE SDK operation with either the CPU or GPU backend.
 
+Examples:
+    python full_session_showcase.py --backend openfhe
+    python full_session_showcase.py --backend fides
+"""
+
+import argparse
 import os
 from pathlib import Path
 import tempfile
 
-from he_sdk import HESession
+from he_sdk import BackendUnavailableError, HESession, __version__
 
 
-# Use "openfhe" in the CPU environment or "fides" in the GPU environment.
-BACKEND = os.getenv("HE_SDK_BACKEND", "openfhe")
+# The command-line option takes precedence; HE_SDK_BACKEND remains convenient
+# for containers and CI jobs.
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--backend",
+    choices=("openfhe", "fides"),
+    default=os.getenv("HE_SDK_BACKEND", "openfhe"),
+)
+BACKEND = parser.parse_args().backend
 
 left_values = [1.0, 2.0, 3.0, 4.0]
 right_values = [10.0, 20.0, 30.0, 40.0]
 
+print("he_sdk version:", __version__)
 print("backend:", BACKEND)
 print("left input:", left_values)
 print("right input:", right_values)
 
 # HESession.create()
-session = HESession.create(backend=BACKEND)
+try:
+    session = HESession.create(backend=BACKEND)
+except BackendUnavailableError as error:
+    if BACKEND == "openfhe":
+        install_hint = 'python -m pip install "he_looming_sdk[cpu]==0.6.3"'
+    else:
+        install_hint = (
+            "python -m pip install --extra-index-url "
+            '"https://gitlab.com/api/v4/projects/84844502/packages/pypi/simple" '
+            '"he_looming_sdk[gpu]==0.6.3"'
+        )
+    raise SystemExit(f"{error}\nInstall this backend with:\n{install_hint}") from error
+
+print("capabilities:", session.capabilities)
 
 # encrypt() and decrypt()
 left_ct = session.encrypt(left_values)

@@ -49,6 +49,12 @@ The `[cpu]` extra installs the pinned `openfhe` Python dependency. Do not instal
 `openfhe` separately. The GPU/FIDES extra is optional and is not part of this
 CPU-first installation path.
 
+Run the complete CPU session example:
+
+```sh
+python examples/sdk/full_session_showcase.py --backend openfhe
+```
+
 ### Install the optional GPU package from GitLab
 
 Use a separate Python 3.12/Linux x86_64 environment with an NVIDIA driver and
@@ -77,6 +83,12 @@ python -m pip install \
 ```
 
 Do not commit or paste the real deploy token into a shared notebook.
+
+Run the same session API through FIDES on the GPU:
+
+```sh
+python examples/sdk/full_session_showcase.py --backend fides
+```
 
 ```python
 from he_sdk import HESession
