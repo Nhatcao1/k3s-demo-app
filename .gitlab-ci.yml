@@ -36,6 +36,9 @@ variables:
   SDK_WHEEL_DIR: "dist"
   FIDES_SDK_WHEEL_DIR: "fides-dist"
   SECRET_DETECTION_ENABLED: "true"
+  # Core CPU wheel is the default release path. Set this variable to "true"
+  # only for a pipeline that intentionally builds Docker/GPU extras.
+  ENABLE_OPTIONAL_BUILDS: "false"
 
 sast:
   stage: test
@@ -204,7 +207,7 @@ build-fides-sdk-wheel:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
     - if: '$CI_COMMIT_TAG =~ /^fides-v[0-9]+\.[0-9]+\.[0-9]+$/'
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true"'
       changes:
         - .gitlab-ci.yml
         - gpu/Dockerfile
@@ -330,7 +333,7 @@ build-openfhe-evaluator-cpu:
   dependencies:
     - build-sdk-wheel
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       changes:
         - .gitlab-ci.yml
         - Dockerfile
@@ -345,7 +348,7 @@ build-openfhe-evaluator-cpu:
         - pyproject.toml
     # Keep a manual recovery button when an earlier test failure prevented a
     # CPU-related commit from ever reaching the build stage.
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       when: manual
       allow_failure: true
   before_script:
@@ -373,7 +376,7 @@ build-he-notebook:
   dependencies:
     - build-sdk-wheel
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       changes:
         - .gitlab-ci.yml
         - Dockerfile.notebook
@@ -382,7 +385,7 @@ build-he-notebook:
         - he_sdk/**/*
         - openfhe_cpu/**/*
         - pyproject.toml
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       when: manual
       allow_failure: true
   before_script:
@@ -413,7 +416,7 @@ build-he-notebook-gpu:
   dependencies:
     - build-sdk-wheel
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       changes:
         - .gitlab-ci.yml
         - gpu/**/*
@@ -421,7 +424,7 @@ build-he-notebook-gpu:
         - pyproject.toml
     # A CPU-only runner can compile this CUDA image on a feature branch. The
     # first real FIDES operation is intentionally deferred to the K3s T4 Pod.
-    - if: '$CI_COMMIT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       when: manual
       allow_failure: true
   before_script:
@@ -456,7 +459,7 @@ build-he-sdk-worker-cpu:
   dependencies:
     - build-sdk-wheel
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       changes:
         - .gitlab-ci.yml
         - Dockerfile.sdk-worker-cpu
@@ -466,7 +469,7 @@ build-he-sdk-worker-cpu:
         - pyproject.toml
     # Feature branches can build an immutable trial image on demand without
     # making the image path automatic on every commit.
-    - if: '$CI_COMMIT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       when: manual
       allow_failure: true
   before_script:
@@ -495,7 +498,7 @@ build-fides-evaluator-gpu:
     GIT_SUBMODULE_FORCE_HTTPS: "true"
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       changes:
         - .gitlab-ci.yml
         - .gitmodules
@@ -504,7 +507,7 @@ build-fides-evaluator-gpu:
         - tests/test_gpu_api.py
     # Keep a manual recovery button when an earlier test failure prevented a
     # GPU-related commit from ever reaching the build stage.
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       when: manual
       allow_failure: true
   before_script:
@@ -543,7 +546,7 @@ build-he-sdk-worker-gpu:
   dependencies:
     - build-sdk-wheel
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       changes:
         - .gitlab-ci.yml
         - gpu/**/*
@@ -552,7 +555,7 @@ build-he-sdk-worker-gpu:
         - pyproject.toml
     # Compile on a feature branch only when explicitly requested; runtime
     # acceptance still happens in the K3s GPU Job, not on this CPU runner.
-    - if: '$CI_COMMIT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       when: manual
       allow_failure: true
   before_script:
@@ -587,12 +590,12 @@ build-postgres-storage:
   variables:
     BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       changes:
         - .gitlab-ci.yml
         - compose.postgres.yaml
         - postgres/**/*
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       when: manual
       allow_failure: true
   before_script:

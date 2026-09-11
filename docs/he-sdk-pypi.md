@@ -39,6 +39,13 @@ git push origin v0.6.3
 Tag này build wheel core, cài thử chính wheel đó với extra `[cpu]`, import
 `openfhe`, rồi publish lên GitLab registry và public PyPI.
 
+Các image notebook, worker, evaluator, Postgres và GPU không chạy trong luồng
+release core. Chỉ bật chúng trong một pipeline riêng bằng variable:
+
+```text
+ENABLE_OPTIONAL_BUILDS=true
+```
+
 ## GPU sau, khi cần
 
 ```sh
