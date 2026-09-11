@@ -41,7 +41,7 @@ from he_sdk import HESession
 ANALYST_PUBLIC_KEY = Path("./analyst-public")
 RESULT_WORKSPACE = Path("./released-results")
 
-with HESession.create(backend="openfhe") as owner:
+with HESession.create() as owner:
     encrypted_input = owner.encrypt([10.0, 20.0, 30.0])
 
     # Trial shortcut: in production the analyst creates this in its own

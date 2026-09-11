@@ -26,12 +26,13 @@ def _maximum_error(observed: list[float], expected: list[float]) -> float:
     )
 
 
-def run(backend: str = "openfhe") -> dict[str, object]:
+def run(backend: str | None = None) -> dict[str, object]:
     """Run all SDK-v1 functions and return a machine-readable result."""
     mean = sum(LEFT) / len(LEFT)
     cases: dict[str, tuple[list[float] | float, list[float]]] = {}
 
     with HESession.create(backend=backend) as he:
+        selected_backend = he.capabilities.backend
         left = he.encrypt(LEFT)
         right = he.encrypt(RIGHT)
         cases = {
@@ -78,7 +79,7 @@ def run(backend: str = "openfhe") -> dict[str, object]:
 
     return {
         "status": "PASS",
-        "backend": backend,
+        "backend": selected_backend,
         "operations": list(cases),
         "decrypted_results": decrypted_results,
         "maximum_absolute_error": maximum_errors,
@@ -86,7 +87,7 @@ def run(backend: str = "openfhe") -> dict[str, object]:
 
 
 def main() -> None:
-    backend = os.getenv("HE_SDK_BACKEND", "openfhe")
+    backend = os.getenv("HE_SDK_BACKEND")
     print("SDK_SMOKE_RESULT=" + json.dumps(run(backend), sort_keys=True))
 
 

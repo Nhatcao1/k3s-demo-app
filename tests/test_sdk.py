@@ -26,6 +26,7 @@ from he_sdk import (
     __version__,
 )
 from he_sdk.backends import create_backend
+from he_sdk.backends.base import resolve_backend_name
 from he_sdk import native_runtime
 from he_sdk import smoke
 
@@ -510,6 +511,40 @@ class SDKContractTests(unittest.TestCase):
     def test_fides_is_not_silently_routed_to_cpu(self) -> None:
         with self.assertRaisesRegex(BackendUnavailableError, "he-sdk-fides"):
             create_backend("fides", CKKSConfig.profile("ckks-balanced-v1"))
+
+    def test_public_device_names_map_to_native_backends(self) -> None:
+        self.assertEqual(resolve_backend_name("cpu"), "openfhe")
+        self.assertEqual(resolve_backend_name("gpu"), "fides")
+        self.assertEqual(resolve_backend_name("openfhe"), "openfhe")
+        self.assertEqual(resolve_backend_name("fides"), "fides")
+
+    def test_backend_auto_detection_requires_exactly_one_component(self) -> None:
+        def cpu_only(name: str) -> object | None:
+            return object() if name == "openfhe" else None
+
+        def gpu_only(name: str) -> object | None:
+            return object() if name == "he_sdk_fides" else None
+
+        with mock.patch("he_sdk.backends.base.find_spec", side_effect=cpu_only):
+            self.assertEqual(resolve_backend_name(), "openfhe")
+        with mock.patch("he_sdk.backends.base.find_spec", side_effect=gpu_only):
+            self.assertEqual(resolve_backend_name(), "fides")
+        with mock.patch("he_sdk.backends.base.find_spec", return_value=None):
+            with self.assertRaisesRegex(BackendUnavailableError, "No HE backend"):
+                resolve_backend_name()
+        with mock.patch("he_sdk.backends.base.find_spec", return_value=object()):
+            with self.assertRaisesRegex(BackendUnavailableError, "Both CPU and GPU"):
+                resolve_backend_name()
+
+    def test_session_accepts_public_device_selector(self) -> None:
+        backend = FakeBackend()
+        with mock.patch("he_sdk.session.create_backend", return_value=backend) as factory:
+            session = HESession.create(device="cpu")
+        factory.assert_called_once_with("cpu", session.config)
+        session.close()
+
+        with self.assertRaisesRegex(ValueError, "either device or backend"):
+            HESession.create(device="cpu", backend="openfhe")
 
     def test_sdk_smoke_uses_all_first_release_operations(self) -> None:
         with mock.patch.object(

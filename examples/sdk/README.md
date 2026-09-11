@@ -12,8 +12,8 @@ SDK hiện hỗ trợ:
 - Lưu và đọc ciphertext bằng SDK workspace.
 - Chỉ cấp quyền giải mã kết quả tổng hợp cho analyst.
 
-Backend CPU dùng OpenFHE; backend GPU dùng FIDESlib. Một lệnh cài đặt lấy cả
-hai component nhưng SDK không tự động chuyển CPU/GPU.
+Backend CPU dùng OpenFHE; backend GPU dùng FIDESlib. Cài `[cpu]` hoặc `[gpu]`
+trong hai environment riêng; SDK tự nhận component đã cài trong environment.
 
 ## 1. Cài đặt
 
@@ -23,7 +23,7 @@ Khuyến nghị tạo virtual environment riêng:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk==0.6.3"
+python -m pip install "he_looming_sdk==0.6.4"
 ```
 
 Kiểm tra package:
@@ -35,7 +35,7 @@ python -c "import he_sdk; print(he_sdk.__version__)"
 Kết quả mong đợi:
 
 ```text
-0.6.3
+0.6.4
 ```
 
 ## Kịch bản hiển thị toàn bộ lifecycle
@@ -44,9 +44,14 @@ File `full_session_showcase.py` in ra input, ciphertext wrapper, expected output
 decrypted output, sai số và thời gian cho tất cả phép toán hiện có:
 
 ```bash
-python examples/sdk/full_session_showcase.py --backend openfhe
-python examples/sdk/full_session_showcase.py --backend fides
+python examples/sdk/full_session_showcase.py
+python examples/sdk/full_session_showcase.py --device cpu
+python examples/sdk/full_session_showcase.py --device gpu
 ```
+
+Thông thường chỉ cần lệnh đầu tiên. SDK tự nhận backend duy nhất được cài trong
+environment: `[cpu]` chọn OpenFHE, `[gpu]` chọn FIDES. `--device` chỉ dùng để
+override rõ ràng khi debug; tên thư viện không xuất hiện trong application API.
 
 `openfhe` còn minh họa `save/load`, mở một compute-only session từ workspace,
 và release kết quả tổng hợp cho recipient. `fides` chạy phần toán học trên GPU;
@@ -73,7 +78,7 @@ def show(name, value):
     print(f"{name}: {value}")
 
 
-with HESession.create(backend="openfhe") as he:
+with HESession.create() as he:
     # Plaintext chỉ xuất hiện tại trusted client này.
     encrypted_a = he.encrypt([1.0, 2.0, 3.0])
     encrypted_b = he.encrypt([10.0, 20.0, 30.0])
@@ -134,7 +139,7 @@ chưa thuộc stable API. Với dữ liệu lớn hơn, client phải chia chunk
 `HESession.create()` tạo một CKKS context và key pair:
 
 ```python
-owner = HESession.create(backend="openfhe")
+owner = HESession.create()
 encrypted = owner.encrypt([10.0, 20.0, 30.0])
 result = owner.sum(encrypted)
 print(owner.decrypt(result))
@@ -158,7 +163,7 @@ from pathlib import Path
 from he_sdk import HESession
 
 workspace = Path("./he-workspace")
-owner = HESession.create(backend="openfhe")
+owner = HESession.create()
 
 encrypted = owner.encrypt([10.0, 20.0, 30.0])
 owner.save(encrypted, workspace, name="input")
@@ -234,7 +239,7 @@ Ví dụ nhỏ dưới đây tạo analyst key khác owner key, rồi chỉ rele
 ```python
 from he_sdk import HESession, ResultReleaseError
 
-with HESession.create(backend="openfhe") as owner:
+with HESession.create() as owner:
     encrypted_input = owner.encrypt([10.0, 20.0, 30.0])
     encrypted_sum = owner.sum(encrypted_input)
 

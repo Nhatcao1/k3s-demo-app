@@ -24,7 +24,7 @@ sudo apt-get install -y libgomp1 python3.12-venv
 python3.12 -m venv .venv-he
 source .venv-he/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk[cpu]==0.6.3"
+python -m pip install "he_looming_sdk[cpu]==0.6.4"
 ```
 
 On Google Colab:
@@ -33,7 +33,7 @@ On Google Colab:
 !apt-get update -qq
 !apt-get install -y libgomp1
 !python -m pip install --upgrade pip
-!python -m pip install "he_looming_sdk[cpu]==0.6.3"
+!python -m pip install "he_looming_sdk[cpu]==0.6.4"
 ```
 
 Verify the installation:
@@ -52,7 +52,7 @@ CPU-first installation path.
 Run the complete CPU session example:
 
 ```sh
-python examples/sdk/full_session_showcase.py --backend openfhe
+python examples/sdk/full_session_showcase.py
 ```
 
 ### Install the optional GPU package from GitLab
@@ -69,7 +69,7 @@ source .venv-he-gpu/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/84844502/packages/pypi/simple" \
-  "he_looming_sdk[gpu]==0.6.3"
+  "he_looming_sdk[gpu]==0.6.4"
 ```
 
 Use `--extra-index-url`, not `--index-url`: pip obtains the core package from
@@ -79,7 +79,7 @@ GitLab registry is private, authenticate with a read-package deploy token:
 ```sh
 python -m pip install \
   --extra-index-url "https://DEPLOY_USERNAME:DEPLOY_TOKEN@gitlab.com/api/v4/projects/84844502/packages/pypi/simple" \
-  "he_looming_sdk[gpu]==0.6.3"
+  "he_looming_sdk[gpu]==0.6.4"
 ```
 
 Do not commit or paste the real deploy token into a shared notebook.
@@ -87,13 +87,13 @@ Do not commit or paste the real deploy token into a shared notebook.
 Run the same session API through FIDES on the GPU:
 
 ```sh
-python examples/sdk/full_session_showcase.py --backend fides
+python examples/sdk/full_session_showcase.py
 ```
 
 ```python
 from he_sdk import HESession
 
-with HESession.create(backend="openfhe") as he:
+with HESession.create() as he:
     values = he.encrypt([1.0, 2.0, 3.0, 4.0])
     encrypted_result = he.variance(values)
     result = he.decrypt(encrypted_result)
@@ -103,7 +103,7 @@ Version 0.4 also supports an SDK-only, secretless filesystem handoff:
 
 ```python
 # Owner process
-owner = HESession.create(backend="openfhe")
+owner = HESession.create()
 encrypted = owner.encrypt([10.0, 20.0, 30.0])
 owner.save(encrypted, "./he-workspace", name="input")
 

@@ -19,7 +19,7 @@ Owner process:
 ```python
 from he_sdk import HESession
 
-owner = HESession.create(backend="openfhe")
+owner = HESession.create()
 encrypted = owner.encrypt([10.0, 20.0, 30.0])
 owner.save(encrypted, "./he-workspace", name="input")
 ```

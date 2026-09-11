@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
@@ -62,9 +63,44 @@ class HEBackend(Protocol):
     def close(self) -> None: ...
 
 
-def create_backend(name: str, config: CKKSConfig) -> HEBackend:
+def resolve_backend_name(name: str | None = None) -> str:
+    """Map public CPU/GPU names or detect the single installed component."""
+    if name is not None:
+        normalized = name.strip().lower()
+        aliases = {
+            "cpu": "openfhe",
+            "gpu": "fides",
+            "openfhe": "openfhe",
+            "fides": "fides",
+        }
+        if normalized != "auto":
+            try:
+                return aliases[normalized]
+            except KeyError as error:
+                raise ValueError(f"unknown HE device/backend: {name}") from error
+
+    installed: list[str] = []
+    if find_spec("openfhe") is not None:
+        installed.append("openfhe")
+    if find_spec("he_sdk_fides") is not None:
+        installed.append("fides")
+
+    if len(installed) == 1:
+        return installed[0]
+    if not installed:
+        raise BackendUnavailableError(
+            "No HE backend is installed. Install he_looming_sdk[cpu] or "
+            "he_looming_sdk[gpu] in this Python environment."
+        )
+    raise BackendUnavailableError(
+        "Both CPU and GPU native backends are installed. Use separate Python "
+        "environments, or explicitly select device='cpu' or device='gpu'."
+    )
+
+
+def create_backend(name: str | None, config: CKKSConfig) -> HEBackend:
     """Create a trusted backend that owns its HE keys."""
-    normalized = name.strip().lower()
+    normalized = resolve_backend_name(name)
     if normalized == "openfhe":
         from he_sdk.backends.openfhe import OpenFHEBackend
 
@@ -92,7 +128,7 @@ def create_backend_from_public_material(
     key_bundle_id: str,
 ) -> HEBackend:
     """Open a compute-only backend from persisted public HE material."""
-    normalized = name.strip().lower()
+    normalized = resolve_backend_name(name)
     if normalized == "openfhe":
         from he_sdk.backends.openfhe import OpenFHEBackend
 
@@ -126,4 +162,5 @@ __all__ = [
     "HEBackend",
     "create_backend",
     "create_backend_from_public_material",
+    "resolve_backend_name",
 ]

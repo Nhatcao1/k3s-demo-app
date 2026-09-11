@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory() as temporary:
     public_key_directory = root / "analyst-public"
     result_workspace = root / "released-results"
 
-    with HESession.create(backend="openfhe") as owner:
+    with HESession.create() as owner:
         encrypted_input = owner.encrypt(VALUES)
 
         # The analyst keeps this recipient object. Only its public half crosses

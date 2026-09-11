@@ -10,7 +10,7 @@ https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi
 Hai tag release kích hoạt hai job private tương ứng:
 
 ```text
-v0.6.3       -> publish-sdk-gitlab
+v0.6.4       -> publish-sdk-gitlab
 fides-v0.3.3 -> publish-fides-sdk-gitlab
 ```
 
@@ -45,7 +45,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  "he_looming_sdk[gpu]==0.6.3"
+  "he_looming_sdk[gpu]==0.6.4"
 ```
 
 Pip lấy core và FIDES component từ GitLab. Tạo CPU environment riêng; cùng
@@ -57,7 +57,7 @@ source .venv-cpu/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  "he_looming_sdk[cpu]==0.6.3"
+  "he_looming_sdk[cpu]==0.6.4"
 ```
 
 Không dùng `--no-deps`, nếu không dependency của extra sẽ không được cài.

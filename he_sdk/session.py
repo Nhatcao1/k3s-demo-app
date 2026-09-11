@@ -49,11 +49,20 @@ class HESession:
     def create(
         cls,
         *,
-        backend: str = "openfhe",
+        device: str | None = None,
+        backend: str | None = None,
         config: CKKSConfig | None = None,
     ) -> "HESession":
+        """Create a session using the installed CPU or GPU component.
+
+        ``device`` is the public selector (``cpu`` or ``gpu``). When neither
+        selector is provided, the SDK detects the single installed extra.
+        ``backend`` retains compatibility with older OpenFHE/FIDES callers.
+        """
+        if device is not None and backend is not None:
+            raise ValueError("pass either device or backend, not both")
         selected = config or CKKSConfig.profile("ckks-balanced-v1")
-        return cls(create_backend(backend, selected), selected)
+        return cls(create_backend(device or backend, selected), selected)
 
     @classmethod
     def from_backend(

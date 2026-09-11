@@ -57,13 +57,19 @@ Install exactly one native backend in each supported Python 3.12/Linux
 environment:
 
 ```sh
-python3 -m pip install "he_looming_sdk[cpu]==0.6.3"
-HE_SDK_BACKEND=openfhe python3 examples/sdk/full_session_showcase.py
+python3 -m pip install "he_looming_sdk[cpu]==0.6.4"
+python3 examples/sdk/full_session_showcase.py
 
 # Run in a separate virtual environment on a CUDA host:
-python3 -m pip install "he_looming_sdk[gpu]==0.6.3"
-HE_SDK_BACKEND=fides python3 examples/sdk/full_session_showcase.py
+python3 -m pip install \
+  --extra-index-url "https://gitlab.com/api/v4/projects/84844502/packages/pypi/simple" \
+  "he_looming_sdk[gpu]==0.6.4"
+python3 examples/sdk/full_session_showcase.py
 ```
+
+Application code normally calls `HESession.create()` without a backend name.
+The SDK selects the only installed extra. For debugging, `device="cpu"` or
+`device="gpu"` is available as an explicit override.
 
 For the SDK-only two-kernel walkthrough, run
 `examples/notebooks/01_owner_encrypt.ipynb` and then
