@@ -11,7 +11,7 @@ Hai tag release kích hoạt hai job private tương ứng:
 
 ```text
 v0.6.5       -> publish-sdk-gitlab
-fides-v0.3.5 -> publish-fides-sdk-gitlab
+fides-v0.3.4 -> publish-fides-sdk-gitlab
 ```
 
 Core CPU được release trước; GPU là release tùy chọn riêng. Xem

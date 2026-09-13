@@ -56,7 +56,7 @@ Use a separate Python 3.12/Linux x86_64 environment with an NVIDIA driver and
 a supported CUDA GPU. Do not install the `[cpu]` and `[gpu]` extras in the same
 environment because FIDESlib uses its own patched OpenFHE runtime.
 
-After the `fides-v0.3.5` pipeline job `publish-fides-sdk-gitlab` succeeds:
+After the `fides-v0.3.4` pipeline job `publish-fides-sdk-gitlab` succeeds:
 
 ```sh
 python3.12 -m venv .venv-he-gpu
@@ -68,7 +68,7 @@ python -m pip install \
 ```
 
 Use `--extra-index-url`, not `--index-url`: pip obtains the core package from
-public PyPI and the native `he-sdk-fides==0.3.5` wheel from GitLab. If the
+public PyPI and the native `he-sdk-fides==0.3.4` wheel from GitLab. If the
 GitLab registry is private, authenticate with a read-package deploy token:
 
 ```sh
