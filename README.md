@@ -7,6 +7,10 @@ reuses `openfhe_cpu/runtime.py`, which is the same function layer used by the
 CPU HTTP evaluator. Application developers therefore get a different wrapper,
 not a second implementation of the HE calculations.
 
+Canonical CPU/GPU pip instructions and current package availability are in
+[`docs/he-sdk-install.md`](docs/he-sdk-install.md). Use that file instead of
+copying release commands from CI documentation.
+
 ### Install the CPU package
 
 Current prerequisites:
@@ -24,7 +28,7 @@ sudo apt-get install -y libgomp1 python3.12-venv
 python3.12 -m venv .venv-he
 source .venv-he/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk[cpu]==0.6.5"
+python -m pip install "he_looming_sdk[cpu]==0.6.4"
 ```
 
 The upstream OpenFHE CPU wheel currently targets Ubuntu 24.04 and is not

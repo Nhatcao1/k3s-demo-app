@@ -1,5 +1,9 @@
 # HE SDK private GitLab registry
 
+Hướng dẫn dành cho người cài SDK nằm tại [`he-sdk-install.md`](he-sdk-install.md).
+File này mô tả registry và quy trình xác thực; không dùng các version dự kiến
+bên dưới để kết luận rằng package đã được publish.
+
 Public PyPI là đường cài chính. GitLab Package Registry giữ bản private của cả
 core và native FIDES component tại:
 
