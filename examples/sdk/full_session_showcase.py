@@ -1,57 +1,20 @@
 #!/usr/bin/env python3
-"""Run every public HE SDK operation with either the CPU or GPU backend.
+"""Linear CPU/GPU SDK showcase suitable for notebook cells."""
 
-Examples:
-    python full_session_showcase.py
-    python full_session_showcase.py --device gpu
-"""
-
-import argparse
-import os
 from pathlib import Path
 import tempfile
 
-from he_sdk import BackendUnavailableError, HESession, __version__
-
-
-# Normally no option is needed: each environment installs only one native
-# extra, so the SDK detects CPU or GPU. The option is an explicit override.
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument(
-    "--device",
-    choices=("cpu", "gpu"),
-    default=os.getenv("HE_SDK_DEVICE"),
-)
-DEVICE = parser.parse_args().device
+from he_sdk import HESession, __version__
 
 left_values = [1.0, 2.0, 3.0, 4.0]
 right_values = [10.0, 20.0, 30.0, 40.0]
 
 print("he_sdk version:", __version__)
-print("requested device:", DEVICE or "auto")
 print("left input:", left_values)
 print("right input:", right_values)
 
-# HESession.create()
-try:
-    session = HESession.create(device=DEVICE)
-except BackendUnavailableError as error:
-    if DEVICE == "cpu":
-        install_hint = 'python -m pip install "he_looming_sdk[cpu]==0.6.4"'
-    elif DEVICE == "gpu":
-        install_hint = (
-            "python -m pip install --extra-index-url "
-            '"https://gitlab.com/api/v4/projects/84844502/packages/pypi/simple" '
-            '"he_looming_sdk[gpu]==0.6.4"'
-        )
-    else:
-        install_hint = (
-            'CPU: python -m pip install "he_looming_sdk[cpu]==0.6.4"\n'
-            "GPU: python -m pip install --extra-index-url "
-            '"https://gitlab.com/api/v4/projects/84844502/packages/pypi/simple" '
-            '"he_looming_sdk[gpu]==0.6.4"'
-        )
-    raise SystemExit(f"{error}\nInstall this backend with:\n{install_hint}") from error
+# HESession.create() detects the single installed [cpu] or [gpu] component.
+session = HESession.create()
 
 print("selected backend:", session.capabilities.backend)
 print("capabilities:", session.capabilities)

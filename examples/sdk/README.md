@@ -45,13 +45,11 @@ decrypted output, sai số và thời gian cho tất cả phép toán hiện có
 
 ```bash
 python examples/sdk/full_session_showcase.py
-python examples/sdk/full_session_showcase.py --device cpu
-python examples/sdk/full_session_showcase.py --device gpu
 ```
 
-Thông thường chỉ cần lệnh đầu tiên. SDK tự nhận backend duy nhất được cài trong
-environment: `[cpu]` chọn OpenFHE, `[gpu]` chọn FIDES. `--device` chỉ dùng để
-override rõ ràng khi debug; tên thư viện không xuất hiện trong application API.
+SDK tự nhận backend duy nhất được cài trong environment: `[cpu]` chọn OpenFHE,
+`[gpu]` chọn FIDES. File không dùng argument parser nên có thể copy tuần tự từng
+phần vào các cell Google Colab.
 
 `openfhe` còn minh họa `save/load`, mở một compute-only session từ workspace,
 và release kết quả tổng hợp cho recipient. `fides` chạy phần toán học trên GPU;
