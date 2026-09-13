@@ -13,7 +13,13 @@ add_subdirectory(
   EXCLUDE_FROM_ALL
 )
 
-pybind11_add_module(_native MODULE native/bindings.cpp)
+# The default pybind11 extras enable link-time optimization.  Linking the
+# statically built FIDESlib and patched OpenFHE archives with LTO can exhaust
+# the memory available in Colab and small CI runners, after which pip only
+# reports "No available output".  The native HE implementation is already
+# compiled in Release mode, so disabling these packaging extras does not
+# change operation semantics or benchmark measurements.
+pybind11_add_module(_native MODULE NO_EXTRAS native/bindings.cpp)
 target_link_libraries(_native PRIVATE he_gpu_backend)
 target_compile_features(_native PRIVATE cxx_std_20)
 
