@@ -23,6 +23,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12-venv \
     && rm -rf /var/lib/apt/lists/*
 
+# Ubuntu 22.04 ships CMake 3.22, while FIDESlib requires at least 3.25.2.
+# Keep the distro compiler/glibc for Colab compatibility, but put a pinned
+# newer CMake executable first on PATH for every native build stage.
+RUN python3.12 -m venv /opt/cmake-tools \
+    && /opt/cmake-tools/bin/python -m pip install \
+      --disable-pip-version-check \
+      'cmake==3.31.6'
+
+ENV PATH=/opt/cmake-tools/bin:$PATH
+
+RUN cmake --version \
+    && cmake --version | grep -F 'cmake version 3.31.6'
+
 # This image contains only FIDESlib and its matching patched OpenFHE. The
 # standard openfhe-python dependency used by the CPU image is not copied here.
 COPY gpu/third_party/FIDESlib /src/FIDESlib
