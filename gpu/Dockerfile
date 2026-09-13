@@ -111,7 +111,8 @@ RUN python3.12 -m venv /opt/fides-wheel-build \
     && /opt/fides-wheel-build/bin/python -m pip install \
       --disable-pip-version-check \
       'auditwheel>=6.4,<7' \
-      'build>=1.2,<2'
+      'build>=1.2,<2' \
+      'patchelf==0.18.0'
 
 RUN CMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
     /opt/fides-wheel-build/bin/python -m build \
@@ -123,7 +124,9 @@ RUN CMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
 # non-system shared libraries and a PEP 600 tag matching Ubuntu 22.04/glibc
 # 2.35, including Google Colab. The NVIDIA driver remains a host requirement
 # and is not bundled.
-RUN /opt/fides-wheel-build/bin/auditwheel show \
+RUN PATH="/opt/fides-wheel-build/bin:${PATH}" \
+    patchelf --version \
+    && /opt/fides-wheel-build/bin/auditwheel show \
       /opt/he-sdk-fides-wheel-raw/he_sdk_fides-*.whl \
     && /opt/fides-wheel-build/bin/auditwheel repair \
       --plat manylinux_2_35_x86_64 \
