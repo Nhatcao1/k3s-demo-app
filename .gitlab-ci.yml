@@ -165,6 +165,7 @@ build-fides-sdk-wheel:
         --opt build-arg:BUILD_JOBS="$BUILD_JOBS" \
         --output "type=local,dest=$FIDES_SDK_WHEEL_DIR"
     - test -n "$(find "$FIDES_SDK_WHEEL_DIR" -maxdepth 1 -name 'he_sdk_fides-*.whl' -print -quit)"
+    - test -n "$(find "$FIDES_SDK_WHEEL_DIR" -maxdepth 1 -name '*manylinux_2_35_x86_64.whl' -print -quit)"
   artifacts:
     name: "he-sdk-fides-$CI_COMMIT_SHORT_SHA"
     paths:

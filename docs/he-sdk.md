@@ -57,13 +57,13 @@ Install exactly one native backend in each supported Python 3.12/Linux
 environment:
 
 ```sh
-python3 -m pip install "he_looming_sdk[cpu]==0.6.4"
+python3 -m pip install "he_looming_sdk[cpu]==0.6.5"
 python3 examples/sdk/full_session_showcase.py
 
 # Run in a separate virtual environment on a CUDA host:
 python3 -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/84844502/packages/pypi/simple" \
-  "he_looming_sdk[gpu]==0.6.4"
+  "he_looming_sdk[gpu]==0.6.5"
 python3 examples/sdk/full_session_showcase.py
 ```
 

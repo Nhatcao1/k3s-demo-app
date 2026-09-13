@@ -24,17 +24,12 @@ sudo apt-get install -y libgomp1 python3.12-venv
 python3.12 -m venv .venv-he
 source .venv-he/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk[cpu]==0.6.4"
+python -m pip install "he_looming_sdk[cpu]==0.6.5"
 ```
 
-On Google Colab:
-
-```python
-!apt-get update -qq
-!apt-get install -y libgomp1
-!python -m pip install --upgrade pip
-!python -m pip install "he_looming_sdk[cpu]==0.6.4"
-```
+The upstream OpenFHE CPU wheel currently targets Ubuntu 24.04 and is not
+compatible with Google Colab's older C++ runtime. Use the dedicated GPU Colab
+notebook instead of installing the CPU extra in Colab.
 
 Verify the installation:
 
@@ -61,7 +56,7 @@ Use a separate Python 3.12/Linux x86_64 environment with an NVIDIA driver and
 a supported CUDA GPU. Do not install the `[cpu]` and `[gpu]` extras in the same
 environment because FIDESlib uses its own patched OpenFHE runtime.
 
-After the `fides-v0.3.3` pipeline job `publish-fides-sdk-gitlab` succeeds:
+After the `fides-v0.3.4` pipeline job `publish-fides-sdk-gitlab` succeeds:
 
 ```sh
 python3.12 -m venv .venv-he-gpu
@@ -69,17 +64,17 @@ source .venv-he-gpu/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/84844502/packages/pypi/simple" \
-  "he_looming_sdk[gpu]==0.6.4"
+  "he_looming_sdk[gpu]==0.6.5"
 ```
 
 Use `--extra-index-url`, not `--index-url`: pip obtains the core package from
-public PyPI and the native `he-sdk-fides==0.3.3` wheel from GitLab. If the
+public PyPI and the native `he-sdk-fides==0.3.4` wheel from GitLab. If the
 GitLab registry is private, authenticate with a read-package deploy token:
 
 ```sh
 python -m pip install \
   --extra-index-url "https://DEPLOY_USERNAME:DEPLOY_TOKEN@gitlab.com/api/v4/projects/84844502/packages/pypi/simple" \
-  "he_looming_sdk[gpu]==0.6.4"
+  "he_looming_sdk[gpu]==0.6.5"
 ```
 
 Do not commit or paste the real deploy token into a shared notebook.

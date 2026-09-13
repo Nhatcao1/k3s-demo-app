@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM nvidia/cuda:12.9.1-devel-ubuntu24.04 AS builder
+FROM nvidia/cuda:12.9.1-devel-ubuntu22.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -8,6 +8,9 @@ ARG FIDESLIB_ARCH=75-real
 ARG BUILD_JOBS=4
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     cmake \
@@ -15,9 +18,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libomp-dev \
     patch \
     patchelf \
-    python3 \
-    python3-dev \
-    python3-venv \
+    python3.12 \
+    python3.12-dev \
+    python3.12-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # This image contains only FIDESlib and its matching patched OpenFHE. The
@@ -91,7 +94,7 @@ RUN cmake --build /src/worker/build --parallel "${BUILD_JOBS}"
 
 # Build the optional SDK plugin with the exact FIDESlib/patched-OpenFHE/CUDA
 # toolchain used by the worker. The core he-sdk wheel remains separate.
-RUN python3 -m venv /opt/fides-wheel-build \
+RUN python3.12 -m venv /opt/fides-wheel-build \
     && /opt/fides-wheel-build/bin/python -m pip install \
       --disable-pip-version-check \
       'auditwheel>=6.4,<7' \
@@ -104,12 +107,13 @@ RUN CMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
       /src/he_sdk_fides
 
 # PyPI rejects generic linux_x86_64 wheels. Repair the native wheel with its
-# non-system shared libraries and a PEP 600 tag matching Ubuntu 24.04/glibc
-# 2.39. The NVIDIA driver remains a host requirement and is not bundled.
+# non-system shared libraries and a PEP 600 tag matching Ubuntu 22.04/glibc
+# 2.35, including Google Colab. The NVIDIA driver remains a host requirement
+# and is not bundled.
 RUN /opt/fides-wheel-build/bin/auditwheel show \
       /opt/he-sdk-fides-wheel-raw/he_sdk_fides-*.whl \
     && /opt/fides-wheel-build/bin/auditwheel repair \
-      --plat manylinux_2_39_x86_64 \
+      --plat manylinux_2_35_x86_64 \
       --exclude libcuda.so.1 \
       --wheel-dir /opt/he-sdk-fides-wheel \
       /opt/he-sdk-fides-wheel-raw/he_sdk_fides-*.whl
@@ -135,7 +139,7 @@ WORKDIR /app
 # the CUDA plugin wheel built with this image's patched OpenFHE/FIDES toolchain.
 COPY dist/he_looming_sdk-*.whl dist/SHA256SUMS /opt/he-sdk-wheel/
 COPY he_worker /app/he_worker
-RUN python3 -m venv /opt/venv \
+RUN python3.12 -m venv /opt/venv \
     && cd /opt/he-sdk-wheel \
     && sha256sum -c SHA256SUMS \
     && /opt/venv/bin/pip install --no-cache-dir --no-deps \
@@ -175,7 +179,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /workspace
 
 COPY dist/he_looming_sdk-*.whl dist/SHA256SUMS /opt/he-sdk-wheel/
-RUN python3 -m venv /opt/venv \
+RUN python3.12 -m venv /opt/venv \
     && cd /opt/he-sdk-wheel \
     && sha256sum -c SHA256SUMS \
     && /opt/venv/bin/pip install --no-cache-dir --no-deps \

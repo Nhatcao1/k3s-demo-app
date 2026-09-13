@@ -1,15 +1,15 @@
 # Publish SDK lên PyPI
 
-Release core `0.6.4` ưu tiên CPU. GPU là component tùy chọn, phát hành độc lập
+Release core `0.6.5` ưu tiên CPU. GPU là component tùy chọn, phát hành độc lập
 sau khi core đã ổn định:
 
 ```sh
-python3 -m pip install "he_looming_sdk[cpu]==0.6.4"
-python3 -m pip install "he_looming_sdk[gpu]==0.6.4"
+python3 -m pip install "he_looming_sdk[cpu]==0.6.5"
+python3 -m pip install "he_looming_sdk[gpu]==0.6.5"
 ```
 
 Mỗi lệnh phải chạy trong một virtual environment riêng. `cpu` kéo
-`openfhe==1.5.1.0.24.4`; `gpu` kéo `he-sdk-fides==0.3.3`. Extra GPU không tự
+`openfhe==1.5.1.0.24.4`; `gpu` kéo `he-sdk-fides==0.3.4`. Extra GPU không tự
 build native code: project vẫn build và publish FIDES wheel riêng.
 
 ## GitLab variables
@@ -32,8 +32,8 @@ và pipeline core không tải thử package GPU từ public PyPI:
 
 ```sh
 git fetch origin main
-git tag -a v0.6.4 origin/main -m "Publish he_looming_sdk 0.6.4"
-git push origin v0.6.4
+git tag -a v0.6.5 origin/main -m "Publish he_looming_sdk 0.6.5"
+git push origin v0.6.5
 ```
 
 Tag này build wheel core, cài thử chính wheel đó với extra `[cpu]`, import
@@ -50,8 +50,8 @@ ENABLE_OPTIONAL_BUILDS=true
 
 ```sh
 git fetch origin main
-git tag -a fides-v0.3.3 origin/main -m "Publish he-sdk-fides 0.3.3"
-git push origin fides-v0.3.3
+git tag -a fides-v0.3.4 origin/main -m "Publish he-sdk-fides 0.3.4"
+git push origin fides-v0.3.4
 ```
 
 GPU build/publish lỗi không ảnh hưởng package CPU đã phát hành. Job GitLab
@@ -66,7 +66,7 @@ Trên Python 3.12/Linux x86_64:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install "he_looming_sdk[cpu]==0.6.4"
+python -m pip install "he_looming_sdk[cpu]==0.6.5"
 python -c 'import he_sdk; print(he_sdk.__version__)'
 HE_SDK_BACKEND=openfhe python -m he_sdk.smoke
 ```
@@ -79,7 +79,7 @@ source .venv-gpu/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/nhatcao99uetwork%2Fk3s-demo-app/packages/pypi/simple" \
-  "he_looming_sdk[gpu]==0.6.4"
+  "he_looming_sdk[gpu]==0.6.5"
 HE_SDK_BACKEND=fides python -m he_sdk.smoke
 ```
 

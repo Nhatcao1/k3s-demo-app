@@ -1,7 +1,7 @@
 # he-sdk-fides
 
 Optional native GPU dependency installed by
-`pip install "he_looming_sdk[gpu]==0.6.4"`. The wheel is built and published
+`pip install "he_looming_sdk[gpu]==0.6.5"`. The wheel is built and published
 separately because it contains the FIDESlib, patched OpenFHE, and CUDA-linked
 runtime. Do not install the `cpu` extra in the same environment.
 
