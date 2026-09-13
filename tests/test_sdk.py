@@ -180,17 +180,17 @@ class SDKContractTests(unittest.TestCase):
             project["project"]["optional-dependencies"],
             {
                 "cpu": ["openfhe==1.5.1.0.24.4"],
-                "gpu": ["he-sdk-fides==0.3.4"],
+                "gpu": ["he-sdk-fides==0.3.6"],
             },
         )
-        self.assertEqual(fides_project["project"]["version"], "0.3.4")
+        self.assertEqual(fides_project["project"]["version"], "0.3.6")
         self.assertEqual(
             fides_project["project"]["dependencies"],
             ["he_looming_sdk>=0.6.3,<0.7"],
         )
         self.assertEqual(
             compatibility["fides"]["python_distribution"],
-            "he-sdk-fides==0.3.4",
+            "he-sdk-fides==0.3.6",
         )
 
     def test_process_cannot_mix_stock_and_patched_openfhe(self) -> None:

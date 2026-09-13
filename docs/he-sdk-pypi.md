@@ -9,7 +9,7 @@ python3 -m pip install "he_looming_sdk[gpu]==0.6.5"
 ```
 
 Mỗi lệnh phải chạy trong một virtual environment riêng. `cpu` kéo
-`openfhe==1.5.1.0.24.4`; `gpu` kéo `he-sdk-fides==0.3.4`. Extra GPU không tự
+`openfhe==1.5.1.0.24.4`; `gpu` kéo `he-sdk-fides==0.3.6`. Extra GPU không tự
 build native code: project vẫn build và publish FIDES wheel riêng.
 
 ## GitLab variables
@@ -50,8 +50,8 @@ ENABLE_OPTIONAL_BUILDS=true
 
 ```sh
 git fetch origin main
-git tag -a fides-v0.3.4 origin/main -m "Publish he-sdk-fides 0.3.4"
-git push origin fides-v0.3.4
+git tag -a fides-v0.3.6 origin/main -m "Publish he-sdk-fides 0.3.6"
+git push origin fides-v0.3.6
 ```
 
 GPU build/publish lỗi không ảnh hưởng package CPU đã phát hành. Job GitLab

@@ -13,7 +13,7 @@ Pip cài hai distribution sau trong GPU environment:
 
 ```text
 he_looming_sdk==0.6.5
-he-sdk-fides==0.3.4
+he-sdk-fides==0.3.6
 ```
 
 `he-sdk-fides` là native wheel Python 3.12/Linux x86_64. Wheel chứa Python
@@ -68,8 +68,8 @@ Sau khi pipeline `main` thành công, publish theo thứ tự:
 
 ```sh
 git fetch origin main
-git tag -a fides-v0.3.4 origin/main -m "Publish he-sdk-fides 0.3.4"
-git push origin fides-v0.3.4
+git tag -a fides-v0.3.6 origin/main -m "Publish he-sdk-fides 0.3.6"
+git push origin fides-v0.3.6
 ```
 
 Tag GPU không chặn hoặc thay đổi core `v0.6.5`; xem `he-sdk-pypi.md`.
