@@ -195,6 +195,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /workspace
 
 COPY dist/he_looming_sdk-*.whl dist/SHA256SUMS /opt/he-sdk-wheel/
+COPY examples/notebooks/gpu_image_full_session.ipynb /workspace/gpu_full_session.ipynb
 RUN python3.12 -m venv /opt/venv \
     && cd /opt/he-sdk-wheel \
     && sha256sum -c SHA256SUMS \

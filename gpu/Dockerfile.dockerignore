@@ -13,5 +13,8 @@
 !dist/
 !dist/*.whl
 !dist/SHA256SUMS
+!examples/
+!examples/notebooks/
+!examples/notebooks/gpu_image_full_session.ipynb
 !he_worker/
 !he_worker/**

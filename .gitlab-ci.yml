@@ -356,6 +356,15 @@ build-he-notebook-gpu:
   dependencies:
     - build-sdk-wheel
   rules:
+    # This isolated branch owns the prebuilt FIDES GPU notebook image. It is
+    # intentionally not merged into main.
+    - if: '$CI_COMMIT_BRANCH == "gpu-notebook-image" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
+      changes:
+        - .gitlab-ci.yml
+        - gpu/**/*
+        - he_sdk/**/*
+        - examples/notebooks/gpu_image_full_session.ipynb
+        - pyproject.toml
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $ENABLE_OPTIONAL_BUILDS == "true" && $DOCKERHUB_USERNAME && $DOCKERHUB_TOKEN'
       changes:
         - .gitlab-ci.yml
