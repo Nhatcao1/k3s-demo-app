@@ -17,6 +17,12 @@ docker.io/dockerboi99/he_k8s:notebook-gpu-<short-commit-sha>
 docker.io/dockerboi99/he_k8s:notebook-gpu-latest
 ```
 
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are protected CI variables. Before
+starting the image pipeline, protect branch `gpu-notebook-image` under
+**Settings > Repository > Protected branches**. Then start a new pipeline for
+that branch. If the branch is not protected, GitLab omits
+`build-he-notebook-gpu` because the Docker Hub credentials are unavailable.
+
 The CI runner compiles the CUDA image but does not execute HE operations. Run
 the image on an NVIDIA GPU host with NVIDIA Container Toolkit:
 
