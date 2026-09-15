@@ -25,11 +25,9 @@ path riêng.
 |---|---:|---|---|
 | Core + CPU extra | `he_looming_sdk[cpu]==0.6.4` | Public PyPI | Đã publish |
 | Core source hiện tại | `0.6.5` | Nhánh `main` | Development, chưa publish |
-| GPU component | `he-sdk-fides==0.3.6` | GitLab Package Registry | Chưa publish thành công |
-| GPU notebook image | `dockerboi99/he_k8s:notebook-gpu-latest` | Nhánh `gpu-notebook-image` | Có sau khi pipeline nhánh build thành công |
-
-Không mô tả GPU pip package là khả dụng trước khi lệnh `pip index versions
-he-sdk-fides` nhìn thấy wheel trong GitLab registry.
+| GPU component đã phát hành | `he-sdk-fides==0.3.3` | GitLab Package Registry | Đã publish wheel `cp312-manylinux_2_39_x86_64` |
+| GPU component source | `0.3.6` | Nhánh `main` | Development, chưa publish |
+| GPU notebook image | `dockerboi99/he_k8s:notebook-gpu-latest` | Nhánh `gpu-notebook-image` | Chỉ khả dụng sau khi job image push tag thành công |
 
 ## 3. Kiến trúc tích hợp
 
@@ -93,7 +91,17 @@ python -m pip install --upgrade pip
 python -m pip install "he_looming_sdk[cpu]==0.6.4"
 ```
 
-GPU target sau khi native wheel đã publish:
+GPU đã phát hành, nhưng phải kiểm tra host trước:
+
+```bash
+uname -m
+python3.12 --version
+ldd --version | head -n 1
+nvidia-smi --query-gpu=name,compute_cap,driver_version --format=csv,noheader
+```
+
+Wheel hiện tại yêu cầu Linux x86_64, CPython 3.12 và glibc từ 2.39. Native
+target đã kiểm thử là NVIDIA T4, compute capability 7.5. Sau đó cài package:
 
 ```bash
 python3.12 -m venv .venv-he-gpu
@@ -101,12 +109,17 @@ source .venv-he-gpu/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --extra-index-url "https://gitlab.com/api/v4/projects/84844502/packages/pypi/simple" \
-  "he_looming_sdk[gpu]==0.6.5"
+  "he_looming_sdk[gpu]==0.6.4"
+
+python -m pip show he_looming_sdk he-sdk-fides
+python -m pip check
 ```
 
-Lệnh GPU trên hiện là contract phát hành, chưa phải lệnh đang hoạt động. Một
-bản tích hợp hoàn chỉnh không yêu cầu người dùng `git clone`, CMake hoặc build
-FIDESlib tại máy đích.
+Core `0.6.4` pin GPU component `he-sdk-fides==0.3.3`. Không cài `[cpu]` và
+`[gpu]` trong cùng environment; không dùng `--no-deps`; không cần `git clone`,
+CMake hoặc build FIDESlib trên máy người dùng. Google Colab hosted hiện không
+nằm trong platform support của wheel. Xem kiểm tra registry, import, smoke test
+và troubleshooting đầy đủ tại [`he-sdk-install.md`](he-sdk-install.md).
 
 ## 6. Code tích hợp CPU tối thiểu
 
@@ -268,8 +281,9 @@ gpu/worker/src/fides_backend.cpp  FIDES operations
 gpu/Dockerfile                    FIDESlib + patched OpenFHE build
 ```
 
-Do GPU wheel chưa publish thành công, đường dùng thử không yêu cầu build tại
-máy người dùng là prebuilt Jupyter image trên nhánh `gpu-notebook-image`:
+GPU wheel `0.3.3` đã có trong GitLab Package Registry. Một đường dùng thử khác,
+không cài package trực tiếp lên host, là prebuilt Jupyter image được định nghĩa
+trên nhánh `gpu-notebook-image`:
 
 ```text
 docker.io/dockerboi99/he_k8s:notebook-gpu-latest
@@ -277,7 +291,9 @@ docker.io/dockerboi99/he_k8s:notebook-gpu-latest
 
 Image chứa sẵn CUDA userspace, FIDESlib, patched OpenFHE, native binding, core
 SDK, JupyterLab và notebook. CI chỉ compile image; phép HE thật phải được chạy
-trên NVIDIA GPU host.
+trên NVIDIA GPU host. Chỉ dùng tag `notebook-gpu-latest` sau khi job
+`build-he-notebook-gpu` thực sự chạy thành công và push image; pipeline kiểm tra
+gần nhất chưa chạy job image này.
 
 ## 12. HTTP evaluator là integration khác
 
@@ -319,7 +335,9 @@ Remote backend chưa tồn tại trong version hiện tại.
 |---|---|---|
 | `No module named openfhe` | CPU extra chưa được cài | Cài `he_looming_sdk[cpu]` |
 | `GLIBCXX_3.4.32 not found` | OS/libstdc++ cũ hơn OpenFHE wheel | Dùng Ubuntu 24.04-compatible environment |
-| `No matching distribution: he-sdk-fides` | GPU wheel chưa publish | Không source-build ở consumer; hoàn tất release wheel |
+| `No matching distribution: he-sdk-fides` | Sai Python/platform/glibc hoặc registry không có version được pin | Dùng CPython 3.12, Linux x86_64, glibc từ 2.39 và kiểm tra GitLab package index |
+| `libcuda.so.1: cannot open` | NVIDIA driver/device chưa được expose | Sửa driver hoặc NVIDIA Container Toolkit; cài lại pip không giải quyết lỗi này |
+| `no kernel image is available` | GPU architecture không có trong wheel | Dùng T4/sm_75 hoặc phát hành wheel cho architecture mới |
 | Incompatible ciphertext | Khác session/context/key bundle/shape | Dùng ciphertext sinh từ cùng session-compatible material |
 | `SecretKeyUnavailableError` | Compute-only session cố decrypt | Chuyển result về owner hoặc release cho recipient |
 | Depth exceeded | Chuỗi multiply/square/variance vượt profile | Thiết kế lại workload/profile; không tăng depth tùy tiện |
@@ -342,7 +360,8 @@ Remote backend chưa tồn tại trong version hiện tại.
 - Container thấy NVIDIA device và tạo được `device="gpu"` session.
 - Add, subtract, multiply, square, sum, mean và variance chạy trên T4.
 - CPU/GPU correctness được so sánh bằng cùng input và tolerance CKKS.
-- Chỉ công bố pip install khi wheel thực sự có trong registry.
+- Pin đúng cặp core `0.6.4` và FIDES component `0.3.3`.
+- Cài từ registry và chạy native smoke test thành công trước benchmark.
 
 ## 16. File nguồn để review
 
