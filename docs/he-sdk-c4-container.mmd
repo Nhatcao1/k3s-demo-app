@@ -1,0 +1,25 @@
+C4Container
+title HE Looming SDK - Runtime and Capability Container View
+
+Person(consumer, "SDK Consumer", "Application, script, notebook, service, or batch worker that uses the Python API")
+Person(recipient, "Result Recipient", "Optional analyst or downstream party that owns a separate result-decryption key")
+
+System_Boundary(sdk_family, "HE Looming SDK Runtime Family") {
+    Container(cpu_runtime, "CPU SDK Runtime", "Python 3.12; he_looming_sdk[cpu]; stock OpenFHE", "Runs one OpenFHE HESession. Supports CKKS encrypt/decrypt, arithmetic, reductions, secretless workspace creation and reuse, and the trial aggregate-result PRE flow. Can also open a workspace without its secret key for compute-only CPU execution.")
+
+    Container(gpu_runtime, "GPU SDK Runtime", "Python 3.12; he_looming_sdk core; he-sdk-fides; FIDESlib; patched OpenFHE; CUDA", "Runs one FIDES HESession in a separate process from stock OpenFHE. Trusted local mode supports CKKS encrypt/decrypt and operations. Compute-only mode can execute against an existing OpenFHE-compatible workspace. Local FIDES serialization and PRE are not implemented.")
+
+    ContainerDb(sdk_workspace, "Secretless SDK Workspace", "Versioned filesystem artifacts", "Stores manifest, CKKS profile, public key, evaluation keys, and ciphertext artifacts. Contains no plaintext or secret key. Currently created by a serialization-capable OpenFHE session and reusable by compatible compute-only CPU or GPU sessions.")
+}
+
+Rel(consumer, cpu_runtime, "Uses as one runtime choice", "Python API; device='cpu'")
+Rel(consumer, gpu_runtime, "Uses as an alternative runtime choice", "Python API; device='gpu'")
+
+Rel(cpu_runtime, sdk_workspace, "Creates, validates, saves, and loads", "openfhe-binary-v1")
+Rel(gpu_runtime, sdk_workspace, "Opens and updates an existing compatible workspace", "Compute-only FIDES bridge; no secret key")
+
+Rel(recipient, cpu_runtime, "Provides a recipient public key", "Optional OpenFHE PRE trial")
+Rel(cpu_runtime, recipient, "Returns an approved released aggregate", "sum, mean, or variance ciphertext")
+
+UpdateRelStyle(consumer, cpu_runtime, $textColor="blue", $lineColor="blue")
+UpdateRelStyle(consumer, gpu_runtime, $textColor="blue", $lineColor="blue")
