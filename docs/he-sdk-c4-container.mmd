@@ -1,25 +1,25 @@
 C4Container
-title HE Looming SDK - Runtime and Capability Container View
+title HE Looming SDK - Simplified Runtime and Capability View
 
-Person(consumer, "SDK Consumer", "Application, script, notebook, service, or batch worker that uses the Python API")
-Person(recipient, "Result Recipient", "Optional analyst or downstream party that owns a separate result-decryption key")
+Person(consumer, "SDK Consumer", "Application, script, service, worker, or notebook")
+Person(recipient, "Result Recipient", "Optional holder of a separate result-decryption key")
 
-System_Boundary(sdk_family, "HE Looming SDK Runtime Family") {
-    Container(cpu_runtime, "CPU SDK Runtime", "Python 3.12; he_looming_sdk[cpu]; stock OpenFHE", "Runs one OpenFHE HESession. Supports CKKS encrypt/decrypt, arithmetic, reductions, secretless workspace creation and reuse, and the trial aggregate-result PRE flow. Can also open a workspace without its secret key for compute-only CPU execution.")
+System_Boundary(sdk_family, "HE Looming SDK - choose one runtime per Python process") {
+    Container(cpu_runtime, "CPU SDK Runtime", "he_looming_sdk[cpu] + stock OpenFHE", "HESession provides encrypt/decrypt and the HE functions ADD, SUBTRACT, MULTIPLY, SQUARE, SUM, MEAN, and VARIANCE. CPU also supports workspace creation/reuse and the trial aggregate-result PRE flow.")
 
-    Container(gpu_runtime, "GPU SDK Runtime", "Python 3.12; he_looming_sdk core; he-sdk-fides; FIDESlib; patched OpenFHE; CUDA", "Runs one FIDES HESession in a separate process from stock OpenFHE. Trusted local mode supports CKKS encrypt/decrypt and operations. Compute-only mode can execute against an existing OpenFHE-compatible workspace. Local FIDES serialization and PRE are not implemented.")
+    Container(gpu_runtime, "GPU SDK Runtime", "he_looming_sdk core + he-sdk-fides + FIDESlib + patched OpenFHE + CUDA", "HESession exposes the same seven HE functions on NVIDIA GPU. Trusted local mode supports encrypt/decrypt. Compute-only mode can use an existing compatible workspace. Local FIDES persistence and PRE are not implemented.")
 
-    ContainerDb(sdk_workspace, "Secretless SDK Workspace", "Versioned filesystem artifacts", "Stores manifest, CKKS profile, public key, evaluation keys, and ciphertext artifacts. Contains no plaintext or secret key. Currently created by a serialization-capable OpenFHE session and reusable by compatible compute-only CPU or GPU sessions.")
+    ContainerDb(sdk_workspace, "Encrypted SDK Workspace", "Versioned filesystem artifacts", "Stores configuration, public/evaluation keys, metadata, and ciphertexts. It contains no plaintext or decryption key.")
 }
 
-Rel(consumer, cpu_runtime, "Uses as one runtime choice", "Python API; device='cpu'")
-Rel(consumer, gpu_runtime, "Uses as an alternative runtime choice", "Python API; device='gpu'")
+Rel(consumer, cpu_runtime, "Uses CPU runtime", "HESession(device='cpu')")
+Rel(consumer, gpu_runtime, "Or uses GPU runtime", "HESession(device='gpu')")
 
-Rel(cpu_runtime, sdk_workspace, "Creates, validates, saves, and loads", "openfhe-binary-v1")
-Rel(gpu_runtime, sdk_workspace, "Opens and updates an existing compatible workspace", "Compute-only FIDES bridge; no secret key")
+Rel(cpu_runtime, sdk_workspace, "Creates, saves, loads, and computes with")
+Rel(gpu_runtime, sdk_workspace, "Computes with an existing workspace", "Compute-only mode")
 
-Rel(recipient, cpu_runtime, "Provides a recipient public key", "Optional OpenFHE PRE trial")
-Rel(cpu_runtime, recipient, "Returns an approved released aggregate", "sum, mean, or variance ciphertext")
+Rel(recipient, cpu_runtime, "Provides recipient public key", "Optional PRE flow")
+Rel(cpu_runtime, recipient, "Releases an already-calculated encrypted sum, mean, or variance")
 
-UpdateRelStyle(consumer, cpu_runtime, $textColor="blue", $lineColor="blue")
-UpdateRelStyle(consumer, gpu_runtime, $textColor="blue", $lineColor="blue")
+UpdateElementStyle(cpu_runtime, $bgColor="#d9edf7", $borderColor="#2980b9")
+UpdateElementStyle(gpu_runtime, $bgColor="#dff0d8", $borderColor="#3c763d")
