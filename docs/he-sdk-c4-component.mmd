@@ -1,57 +1,73 @@
-C4Component
-title HE Looming SDK - Trusted Local CPU and GPU Components
+flowchart LR
+    USER["SDK Consumer<br/><b>Application, script, service, worker or notebook</b>"]
 
-Container_Boundary(python_process, "One Consumer Python Process - CPU or GPU runtime") {
-    Component(consumer_code, "Consumer Code", "Application code", "Supplies plaintext input, selects one runtime, and calls the SDK.")
+    subgraph SDK_CORE["he_looming_sdk — shared Python SDK"]
+        API["Public API<br/><b>he_sdk/__init__.py</b><br/><br/>HESession, CKKSConfig,<br/>encrypted values, capabilities<br/>and result-release types"]
 
-    Boundary(core_package, "he_looming_sdk / import he_sdk") {
-        Component(public_api, "Public API", "he_sdk/__init__.py", "Exports HESession, CKKSConfig, encrypted value types, capabilities, errors, and result-release types. Workspace operations are methods on HESession.")
+        SESSION["HESession + HE Calculation Functions<br/><b>he_sdk/session.py</b><br/><br/>ENCRYPT · DECRYPT<br/>ADD · SUBTRACT · MULTIPLY · SQUARE<br/>SUM · MEAN · VARIANCE"]
 
-        Component(session, "HESession and HE Calculation Functions", "he_sdk/session.py", "Owns one HE context and exposes ENCRYPT, DECRYPT, ADD, SUBTRACT, MULTIPLY, SQUARE, SUM, MEAN, and VARIANCE. It validates session ownership, ciphertext compatibility, shape, operation support, and multiplicative depth.")
+        CONFIG["Configuration + Operation Contracts<br/><b>config.py · contracts.py</b><br/><br/>Session CKKS profile, depth cost,<br/>required keys and capabilities"]
 
-        Component(config_contracts, "Configuration and Operation Contracts", "he_sdk/config.py and he_sdk/contracts.py", "Defines the session-wide CKKS profile, operation inputs/outputs, depth cost, required multiplication/rotation keys, and backend capabilities.")
+        VALUES["Encrypted Values + Metadata<br/><b>ciphertext.py</b><br/><br/>Context, key bundle, shape,<br/>level, scale and provenance"]
 
-        Component(ciphertext_model, "Encrypted Values and Metadata", "he_sdk/ciphertext.py", "Wraps backend ciphertext handles and records context, key bundle, shape, valid count, level, scale, backend identity, and result provenance.")
+        BACKEND["Backend Interface + Runtime Guard<br/><b>backends/base.py · native_runtime.py</b><br/><br/>Choose exactly one CPU or GPU runtime<br/>No automatic fallback"]
 
-        Component(backend_selector, "Backend Interface and Runtime Guard", "he_sdk/backends/base.py and he_sdk/native_runtime.py", "Creates one trusted local OpenFHE CPU or FIDES GPU backend, prevents incompatible native runtimes in one process, and provides no automatic CPU/GPU fallback.")
+        WORKSPACE_MANAGER["CPU Workspace Management<br/><b>artifacts.py</b><br/><br/>Save/load encrypted artifacts<br/>No plaintext or secret key"]
 
-        Component(openfhe_adapter, "OpenFHE CPU Adapter", "he_sdk/backends/openfhe.py", "Creates context and keys; encrypts, decrypts, and executes all seven HE functions on CPU. It also implements ciphertext persistence, workspace reuse, and the current PRE capability.")
+        RELEASE_MANAGER["Aggregate Result Release<br/><b>result_release.py · release_artifacts.py</b><br/><br/>Post-calculation policy + PRE<br/>SUM · MEAN · VARIANCE only"]
 
-        Component(workspace, "CPU Workspace Management", "he_sdk/artifacts.py", "Creates and validates encrypted workspaces and saves/loads compatible OpenFHE ciphertext artifacts. No plaintext or secret key is persisted.")
+        API --> SESSION
+        CONFIG --> SESSION
+        SESSION <--> VALUES
+        SESSION -->|"Dispatch HE calculation"| BACKEND
+    end
 
-        Component(release, "Aggregate Result Release", "he_sdk/result_release.py and he_sdk/release_artifacts.py", "After calculation, applies release policy and proxy re-encrypts an approved SUM, MEAN, or VARIANCE result for a recipient. It does not calculate the aggregate.")
-    }
+    subgraph CPU_RUNTIME["CPU Python environment / image"]
+        CPU_ADAPTER["OpenFHE CPU Adapter<br/><b>backends/openfhe.py</b><br/><br/>Create context and keys<br/>Encrypt/decrypt + all seven functions<br/>Workspace persistence + PRE"]
 
-    Boundary(gpu_package, "Optional he-sdk-fides GPU package") {
-        Component(fides_adapter, "FIDES GPU Adapter", "he_sdk_fides backend + native binding", "Creates its own context and keys; encrypts, decrypts, and executes ADD, SUBTRACT, MULTIPLY, SQUARE, SUM, MEAN, and VARIANCE through FIDESlib, patched OpenFHE, and CUDA. Local workspace persistence and PRE are not implemented.")
-    }
-}
+        CPU_NATIVE["Stock OpenFHE Native Runtime<br/><b>CPU CKKS engine</b>"]
 
-System_Ext(openfhe_engine, "OpenFHE Native Engine", "CPU CKKS runtime")
-System_Ext(fides_engine, "FIDESlib Native Engine", "FIDESlib, patched OpenFHE, and CUDA on NVIDIA GPU")
-ContainerDb(sdk_workspace, "Encrypted SDK Workspace", "Filesystem", "Configuration, public/evaluation keys, metadata, and ciphertexts; no plaintext or decryption key")
-Person_Ext(recipient, "Result Recipient", "Optional holder of the recipient secret key")
+        CPU_ADAPTER --> CPU_NATIVE
+    end
 
-Rel(consumer_code, public_api, "Imports and calls")
-Rel(public_api, session, "Exposes")
+    subgraph GPU_RUNTIME["GPU Python environment / image"]
+        GPU_ADAPTER["FIDES GPU Adapter<br/><b>he-sdk-fides</b><br/><br/>Create context and keys<br/>Encrypt/decrypt + all seven functions"]
 
-Rel(session, config_contracts, "Reads parameters, operation requirements, and capabilities")
-Rel(session, ciphertext_model, "Creates and validates")
-Rel(session, backend_selector, "Creates one runtime and dispatches each HE calculation")
-Rel(session, workspace, "Delegates CPU save/load when supported")
-Rel(session, release, "Passes an already-calculated CPU aggregate")
+        GPU_BINDING["FIDES Native Python Binding<br/><b>pybind11 / C++</b>"]
 
-Rel(backend_selector, openfhe_adapter, "Selects for cpu/openfhe")
-Rel(backend_selector, fides_adapter, "Selects for gpu/fides")
-Rel(openfhe_adapter, openfhe_engine, "Calls")
-Rel(fides_adapter, fides_engine, "Calls through native binding")
+        GPU_NATIVE["FIDESlib + patched OpenFHE<br/><b>CUDA / NVIDIA GPU</b>"]
 
-Rel(workspace, openfhe_adapter, "Uses OpenFHE serialization capability")
-Rel(workspace, sdk_workspace, "Reads and writes")
+        GPU_LIMITS["Current GPU limitations<br/><br/>No local workspace persistence<br/>No proxy re-encryption"]
 
-Rel(release, openfhe_adapter, "Uses current PRE implementation")
-Rel(recipient, release, "Provides public key and receives released ciphertext")
+        GPU_ADAPTER --> GPU_BINDING
+        GPU_BINDING --> GPU_NATIVE
+        GPU_ADAPTER -.-> GPU_LIMITS
+    end
 
-UpdateElementStyle(session, $bgColor="#fff3cd", $borderColor="#d39e00")
-UpdateElementStyle(openfhe_adapter, $bgColor="#d9edf7", $borderColor="#2980b9")
-UpdateElementStyle(fides_adapter, $bgColor="#dff0d8", $borderColor="#3c763d")
+    WORKSPACE[("Encrypted SDK Workspace<br/><br/>Configuration, public/evaluation keys,<br/>metadata and ciphertexts<br/><b>No plaintext or decryption key</b>")]
+
+    RECIPIENT["Result Recipient<br/><br/>Own public and secret key"]
+
+    USER -->|"Import SDK"| API
+
+    BACKEND -->|"CPU runtime choice"| CPU_ADAPTER
+    BACKEND -->|"GPU runtime choice"| GPU_ADAPTER
+
+    SESSION -->|"CPU save/load"| WORKSPACE_MANAGER
+    WORKSPACE_MANAGER --> CPU_ADAPTER
+    WORKSPACE_MANAGER <--> WORKSPACE
+
+    SESSION -->|"Already-calculated CPU aggregate"| RELEASE_MANAGER
+    RELEASE_MANAGER -->|"Use OpenFHE PRE"| CPU_ADAPTER
+    RECIPIENT -->|"Recipient public key"| RELEASE_MANAGER
+    RELEASE_MANAGER -->|"Released encrypted result"| RECIPIENT
+
+    classDef calculation fill:#fff3cd,stroke:#d39e00,stroke-width:3px,color:#1f1f1f
+    classDef cpu fill:#d9edf7,stroke:#2980b9,stroke-width:2px,color:#1f1f1f
+    classDef gpu fill:#dff0d8,stroke:#3c763d,stroke-width:2px,color:#1f1f1f
+    classDef limitation fill:#f2dede,stroke:#a94442,stroke-width:1px,color:#1f1f1f
+
+    class SESSION calculation
+    class CPU_ADAPTER,CPU_NATIVE cpu
+    class GPU_ADAPTER,GPU_BINDING,GPU_NATIVE gpu
+    class GPU_LIMITS limitation
