@@ -1,11 +1,11 @@
 C4Component
-title HE Looming SDK - Simplified Components and HE Functions
+title HE Looming SDK - Trusted Local CPU and GPU Components
 
 Container_Boundary(python_process, "One Consumer Python Process - CPU or GPU runtime") {
     Component(consumer_code, "Consumer Code", "Application code", "Supplies plaintext input, selects one runtime, and calls the SDK.")
 
     Boundary(core_package, "he_looming_sdk / import he_sdk") {
-        Component(public_api, "Public API", "he_sdk/__init__.py", "Exports HESession, CKKSConfig, encrypted value types, capabilities, workspace types, and release types.")
+        Component(public_api, "Public API", "he_sdk/__init__.py", "Exports HESession, CKKSConfig, encrypted value types, capabilities, errors, and result-release types. Workspace operations are methods on HESession.")
 
         Component(session, "HESession and HE Calculation Functions", "he_sdk/session.py", "Owns one HE context and exposes ENCRYPT, DECRYPT, ADD, SUBTRACT, MULTIPLY, SQUARE, SUM, MEAN, and VARIANCE. It validates session ownership, ciphertext compatibility, shape, operation support, and multiplicative depth.")
 
@@ -13,17 +13,17 @@ Container_Boundary(python_process, "One Consumer Python Process - CPU or GPU run
 
         Component(ciphertext_model, "Encrypted Values and Metadata", "he_sdk/ciphertext.py", "Wraps backend ciphertext handles and records context, key bundle, shape, valid count, level, scale, backend identity, and result provenance.")
 
-        Component(backend_selector, "Backend Interface and Runtime Guard", "he_sdk/backends/base.py and he_sdk/native_runtime.py", "Selects OpenFHE CPU or FIDES GPU, creates trusted or compute-only execution, prevents incompatible native runtimes in one process, and provides no automatic CPU/GPU fallback.")
+        Component(backend_selector, "Backend Interface and Runtime Guard", "he_sdk/backends/base.py and he_sdk/native_runtime.py", "Creates one trusted local OpenFHE CPU or FIDES GPU backend, prevents incompatible native runtimes in one process, and provides no automatic CPU/GPU fallback.")
 
-        Component(openfhe_adapter, "OpenFHE CPU Adapter", "he_sdk/backends/openfhe.py", "Executes the HE functions on CPU and implements public-material export, ciphertext serialization, workspace reuse, and the current PRE capability.")
+        Component(openfhe_adapter, "OpenFHE CPU Adapter", "he_sdk/backends/openfhe.py", "Creates context and keys; encrypts, decrypts, and executes all seven HE functions on CPU. It also implements ciphertext persistence, workspace reuse, and the current PRE capability.")
 
-        Component(workspace, "Workspace Management", "he_sdk/artifacts.py", "Creates and validates encrypted workspaces and saves/loads compatible ciphertext artifacts. No plaintext or secret key is persisted.")
+        Component(workspace, "CPU Workspace Management", "he_sdk/artifacts.py", "Creates and validates encrypted workspaces and saves/loads compatible OpenFHE ciphertext artifacts. No plaintext or secret key is persisted.")
 
         Component(release, "Aggregate Result Release", "he_sdk/result_release.py and he_sdk/release_artifacts.py", "After calculation, applies release policy and proxy re-encrypts an approved SUM, MEAN, or VARIANCE result for a recipient. It does not calculate the aggregate.")
     }
 
     Boundary(gpu_package, "Optional he-sdk-fides GPU package") {
-        Component(fides_adapter, "FIDES GPU Adapter", "he_sdk_fides backend + native binding/worker", "Executes the same HE functions through FIDESlib, patched OpenFHE, and CUDA. Supports trusted local mode and an existing-workspace compute-only mode; local persistence and PRE are not implemented.")
+        Component(fides_adapter, "FIDES GPU Adapter", "he_sdk_fides backend + native binding", "Creates its own context and keys; encrypts, decrypts, and executes ADD, SUBTRACT, MULTIPLY, SQUARE, SUM, MEAN, and VARIANCE through FIDESlib, patched OpenFHE, and CUDA. Local workspace persistence and PRE are not implemented.")
     }
 }
 
@@ -37,18 +37,17 @@ Rel(public_api, session, "Exposes")
 
 Rel(session, config_contracts, "Reads parameters, operation requirements, and capabilities")
 Rel(session, ciphertext_model, "Creates and validates")
-Rel(session, backend_selector, "Dispatches each HE calculation")
-Rel(session, workspace, "Delegates save/load when supported")
-Rel(session, release, "Passes an already-calculated aggregate")
+Rel(session, backend_selector, "Creates one runtime and dispatches each HE calculation")
+Rel(session, workspace, "Delegates CPU save/load when supported")
+Rel(session, release, "Passes an already-calculated CPU aggregate")
 
 Rel(backend_selector, openfhe_adapter, "Selects for cpu/openfhe")
 Rel(backend_selector, fides_adapter, "Selects for gpu/fides")
 Rel(openfhe_adapter, openfhe_engine, "Calls")
-Rel(fides_adapter, fides_engine, "Calls through native binding or worker")
+Rel(fides_adapter, fides_engine, "Calls through native binding")
 
-Rel(workspace, backend_selector, "Uses selected backend serialization capability")
+Rel(workspace, openfhe_adapter, "Uses OpenFHE serialization capability")
 Rel(workspace, sdk_workspace, "Reads and writes")
-Rel(fides_adapter, sdk_workspace, "Uses existing artifacts", "Compute-only mode")
 
 Rel(release, openfhe_adapter, "Uses current PRE implementation")
 Rel(recipient, release, "Provides public key and receives released ciphertext")
