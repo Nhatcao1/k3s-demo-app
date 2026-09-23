@@ -1,0 +1,77 @@
+sequenceDiagram
+    autonumber
+    actor Consumer as SDK Consumer
+    participant Session as HESession
+    participant Config as CKKSConfig
+    participant Model as Encrypted Value + Metadata
+    participant Contract as Operation Contract
+    participant Adapter as Selected Backend Adapter
+    participant Native as Native HE Runtime
+
+    Consumer->>Session: encrypt(values)
+    Session->>Config: validate_values(values)
+    Config-->>Session: normalized finite values within range/batch size
+    Session->>Adapter: encrypt(values)
+    Adapter->>Native: encode and encrypt with session public key
+    Native-->>Adapter: ciphertext handle
+    Session->>Model: create EncryptedVector(level=0, valid_count, shape)
+    Model-->>Consumer: EncryptedVector
+
+    Consumer->>Session: calculation(encrypted input)
+    Session->>Contract: read operation requirements
+    Session->>Model: validate session ownership and metadata
+
+    alt add or subtract
+        Note over Contract,Native: Two compatible vectors · depth cost 0<br/>No multiplication or rotation key
+        Session->>Adapter: add(left,right) or subtract(left,right)
+        Adapter->>Native: EvalAdd or EvalSub
+        Native-->>Session: vector ciphertext
+        Session->>Model: preserve level, clear checksum
+    else multiply
+        Note over Contract,Native: Two compatible vectors · depth cost 1<br/>Uses multiplication/relinearization keys
+        Session->>Session: require available multiplicative depth
+        Session->>Adapter: multiply(left, right)
+        Adapter->>Native: EvalMult
+        Native-->>Session: vector ciphertext
+        Session->>Model: level + 1, clear checksum
+    else square
+        Note over Contract,Native: One vector · depth cost 1<br/>Uses multiplication/relinearization keys
+        Session->>Session: require available multiplicative depth
+        Session->>Adapter: square(value)
+        Adapter->>Native: EvalSquare
+        Native-->>Session: vector ciphertext
+        Session->>Model: level + 1, clear checksum
+    else sum
+        Note over Contract,Native: One vector · depth cost 0<br/>Uses rotation keys and valid_count
+        Session->>Adapter: sum(value, valid_count)
+        Adapter->>Native: rotate + add valid slots
+        Native-->>Session: scalar ciphertext
+        Session->>Model: shape=scalar, result_operation=sum
+    else mean
+        Note over Contract,Native: One vector · depth cost 1<br/>Rotation sum × public scalar 1/n
+        Session->>Session: require available multiplicative depth
+        Session->>Adapter: mean(value, valid_count)
+        Adapter->>Native: rotate + add, then multiply by 1/n
+        Native-->>Session: scalar ciphertext
+        Session->>Model: level + 1, result_operation=mean
+    else variance
+        Note over Contract,Native: One vector · depth cost 2<br/>Uses multiplication and rotation keys
+        Session->>Session: require available multiplicative depth
+        Session->>Adapter: variance(value, valid_count)
+        Adapter->>Native: E[x²] - E[x]²
+        Native-->>Session: scalar ciphertext
+        Session->>Model: level + 2, result_operation=variance
+    end
+
+    Model-->>Consumer: EncryptedVector or EncryptedScalar
+
+    opt Trusted session decrypts the result
+        Consumer->>Session: decrypt(encrypted result)
+        Session->>Session: require open session and secret key
+        Session->>Model: validate result belongs to session
+        Session->>Adapter: decrypt(handle, valid length)
+        Adapter->>Native: decrypt and decode
+        Native-->>Consumer: number[] or number
+    end
+
+    Note over Session,Native: Calculation APIs never return plaintext.<br/>Only explicit decrypt() uses the session secret key.

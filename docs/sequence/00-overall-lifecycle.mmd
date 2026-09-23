@@ -1,0 +1,56 @@
+sequenceDiagram
+    autonumber
+    actor Consumer as SDK Consumer
+    participant Config as CKKSConfig
+    participant Session as HESession
+    participant Adapter as Backend Adapter
+    participant Native as Native HE Runtime
+    participant Workspace as Encrypted Workspace
+    actor Recipient as Result Recipient
+
+    Consumer->>Config: profile("ckks-balanced-v1")
+    Config-->>Consumer: immutable CKKSConfig
+    Consumer->>Session: create(device, config)
+    Session->>Adapter: select and create one backend
+    Adapter->>Native: create context and key bundle
+    Native-->>Session: context, public/secret/evaluation keys
+    Session-->>Consumer: trusted HESession
+
+    Consumer->>Session: encrypt(values)
+    Session->>Native: encode and encrypt
+    Native-->>Session: ciphertext handle
+    Session-->>Consumer: EncryptedVector + metadata
+
+    Consumer->>Session: HE calculation
+    Note over Consumer,Session: add · subtract · multiply · square<br/>sum · mean · variance
+    Session->>Session: validate ownership, compatibility and depth
+    Session->>Adapter: dispatch selected operation
+    Adapter->>Native: execute on ciphertext
+    Native-->>Session: encrypted result
+    Session-->>Consumer: EncryptedVector or EncryptedScalar
+
+    opt Persist encrypted data on CPU
+        Consumer->>Session: save(value, workspace, name)
+        Session->>Workspace: public material + ciphertext + metadata
+        Workspace-->>Session: artifact path
+        Session-->>Consumer: artifact path
+    end
+
+    alt Trusted owner decrypts
+        Consumer->>Session: decrypt(result)
+        Session->>Native: decrypt with owner secret key
+        Native-->>Consumer: plaintext value(s)
+    else CPU aggregate is released to recipient
+        Recipient-->>Session: recipient public key
+        Consumer->>Session: release_result(sum/mean/variance, recipient)
+        Session->>Native: proxy re-encrypt aggregate
+        Native-->>Recipient: ReleasedResult ciphertext
+        Recipient->>Recipient: decrypt with recipient secret key
+    end
+
+    Consumer->>Session: close()
+    Session->>Adapter: close backend
+    Adapter->>Native: release native resources
+    Session-->>Consumer: None
+
+    Note over Session,Native: CPU and GPU are separate native runtimes.<br/>There is no automatic fallback between them.

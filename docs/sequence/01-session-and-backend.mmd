@@ -1,0 +1,54 @@
+sequenceDiagram
+    autonumber
+    actor Consumer as SDK Consumer
+    participant Config as CKKSConfig
+    participant Session as HESession
+    participant Resolver as Backend Resolver
+    participant Guard as Native Runtime Guard
+    participant Adapter as OpenFHEBackend / FidesBackend
+    participant Native as Native HE Runtime
+
+    Consumer->>Config: profile("ckks-balanced-v1")
+    Config->>Config: validate CKKS parameters
+    Config-->>Consumer: CKKSConfig + fingerprint
+
+    Consumer->>Session: create(device or backend, config)
+    Session->>Resolver: create_backend(selection, config)
+    Resolver->>Resolver: normalize cpu/openfhe or gpu/fides
+
+    alt No backend explicitly selected
+        Resolver->>Resolver: detect installed backend components
+        alt Exactly one backend is installed
+            Resolver->>Guard: claim_native_runtime(detected backend)
+        else None or both are installed
+            Resolver-->>Consumer: BackendUnavailableError
+        end
+    else Backend explicitly selected
+        Resolver->>Guard: claim_native_runtime(selected backend)
+    end
+
+    alt Process has no selected native runtime
+        Guard->>Guard: store selected backend for process lifetime
+        Guard-->>Resolver: accepted
+    else Same backend already selected
+        Guard-->>Resolver: accepted
+    else Different backend already selected
+        Guard-->>Consumer: BackendUnavailableError
+    end
+
+    Resolver->>Adapter: construct(config)
+    Adapter->>Native: initialize context and keys
+    Native-->>Adapter: context ID, key-bundle ID, engine version
+    Adapter-->>Session: backend instance
+    Session-->>Consumer: HESession
+
+    Consumer->>Session: capabilities
+    Session-->>Consumer: backend, scheme, operations and feature flags
+
+    Consumer->>Session: close()
+    Session->>Adapter: close()
+    Adapter->>Native: clear native resources
+    Session-->>Consumer: None
+
+    Note over Guard,Native: close() does not reset the process runtime claim.<br/>Start a fresh Python process to change CPU/GPU backend.
+    Note over Adapter,Native: OpenFHE also permits only one active local<br/>OpenFHE HESession because evaluation-key state is process-global.

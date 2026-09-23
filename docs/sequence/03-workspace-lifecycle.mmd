@@ -1,0 +1,63 @@
+sequenceDiagram
+    autonumber
+    actor Owner as Trusted Owner
+    participant Session as CPU HESession
+    participant Artifacts as Artifact Workspace Manager
+    participant Backend as OpenFHE Backend
+    participant Files as Filesystem / PVC Workspace
+    participant Compute as Compute-only HESession
+
+    Owner->>Session: save(input_ct, workspace, name="input")
+    Session->>Artifacts: save_ciphertext(session, value, workspace, name)
+
+    alt Workspace does not exist yet
+        Artifacts->>Files: create material/ and ciphertexts/
+        Artifacts->>Backend: export_public_material(material/)
+        Backend->>Files: context.bin
+        Backend->>Files: public-key.bin
+        Backend->>Files: multiplication-keys.bin
+        Backend->>Files: rotation-keys.bin
+        Artifacts->>Files: create manifest.json with checksums
+    else Workspace already exists
+        Artifacts->>Files: read manifest.json
+        Artifacts->>Artifacts: validate backend, context, key bundle and config
+    end
+
+    Artifacts->>Backend: serialize_ciphertext(input_ct)
+    Backend->>Files: ciphertexts/input.bin
+    Artifacts->>Files: update ciphertext record and checksum
+    Artifacts-->>Owner: artifact path
+
+    Owner->>Compute: open_workspace(workspace, execution_backend="openfhe")
+    Compute->>Artifacts: workspace_open_parameters(workspace)
+    Artifacts->>Files: read manifest and verify all material checksums
+    Artifacts-->>Compute: CKKSConfig + IDs + material path
+    Compute->>Backend: from_public_material(config, material/)
+    Backend->>Files: load context.bin and public-key.bin
+    Backend->>Files: load multiplication-keys.bin and rotation-keys.bin
+    Backend-->>Compute: compute-only backend without secret key
+    Compute-->>Owner: compute-only HESession
+
+    Owner->>Compute: load(workspace, name="input")
+    Compute->>Artifacts: load_ciphertext(..., "input")
+    Artifacts->>Files: verify artifact metadata and checksum
+    Artifacts->>Backend: deserialize ciphertexts/input.bin
+    Backend-->>Compute: ciphertext handle
+    Compute-->>Owner: EncryptedVector
+
+    Owner->>Compute: sum(input_ct)
+    Compute->>Backend: calculate with loaded evaluation keys
+    Backend-->>Owner: EncryptedScalar
+
+    Owner->>Compute: save(sum_ct, workspace, name="sum")
+    Compute->>Artifacts: serialize ciphertext and update manifest
+    Artifacts->>Files: ciphertexts/sum.bin + checksum
+    Artifacts-->>Owner: artifact path
+
+    opt Attempt to decrypt in compute-only session
+        Owner->>Compute: decrypt(sum_ct)
+        Compute-->>Owner: SecretKeyUnavailableError
+    end
+
+    Note over Artifacts,Files: The workspace contains no plaintext or secret key.
+    Note over Compute,Files: Opening a workspace loads public material once.<br/>Each ciphertext is loaded only when session.load(name=...) is called.

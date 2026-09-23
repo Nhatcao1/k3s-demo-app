@@ -1,0 +1,47 @@
+sequenceDiagram
+    autonumber
+    actor Owner as Data Owner / Release Authority
+    participant Session as Owner CPU HESession
+    participant Backend as OpenFHE Backend
+    actor Analyst as Result Recipient
+    participant Release as Result Release Model
+    participant Artifacts as Release / Workspace Artifacts
+
+    Owner->>Session: create_result_recipient()
+    Session->>Backend: create second key pair in owner context
+    Backend-->>Release: recipient ID + public key + secret key
+    Release-->>Owner: ResultRecipient
+
+    Owner->>Release: recipient.save_public_key(path)
+    Release->>Artifacts: save recipient public key + checksum manifest
+    Artifacts-->>Analyst: public-key artifact only
+    Note over Release,Analyst: In a real exchange, the analyst retains the<br/>recipient secret key and shares only the public key.
+
+    Analyst-->>Owner: recipient public-key artifact
+    Owner->>Session: load_recipient_public_key(path)
+    Session->>Artifacts: validate manifest, checksum and context
+    Artifacts-->>Session: RecipientPublicKey
+
+    Owner->>Session: sum(), mean(), or variance()
+    Session->>Backend: calculate aggregate under owner key
+    Backend-->>Session: EncryptedScalar with operation provenance
+
+    Owner->>Session: reencrypt_for_recipient(aggregate, public_key)
+    Session->>Session: require scalar + approved operation + compatible recipient
+    Session->>Backend: generate PRE key and re-encrypt ciphertext
+    Backend-->>Release: ciphertext in recipient key domain
+    Release-->>Owner: ReleasedResult
+
+    Owner->>Session: save(released_result, workspace, name)
+    Session->>Artifacts: persist ciphertext, recipient ID and checksum
+    Artifacts-->>Analyst: released-result workspace/artifact
+
+    Analyst->>Release: recipient.load(workspace, name)
+    Release->>Artifacts: validate recipient ID, metadata and checksum
+    Artifacts-->>Release: ReleasedResult
+    Analyst->>Release: recipient.decrypt(released_result)
+    Release->>Backend: decrypt with recipient secret key
+    Backend-->>Analyst: aggregate plaintext number
+
+    Note over Owner,Analyst: The recipient cannot decrypt the owner's original input ciphertext.
+    Note over Session,Backend: Result release is currently an OpenFHE CPU trial.<br/>FIDES GPU PRE is not implemented.

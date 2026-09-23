@@ -1,0 +1,65 @@
+sequenceDiagram
+    autonumber
+    actor Consumer as SDK Consumer
+    participant Session as HESession
+    participant Contract as Operation Contract
+    participant Model as Encrypted Value Metadata
+    participant Backend as Backend Adapter
+    participant Artifact as Workspace / Release Artifact
+
+    Consumer->>Session: call SDK operation
+
+    alt Session is closed
+        Session-->>Consumer: RuntimeError
+    else Session is open
+        Session->>Contract: is operation supported by backend?
+        alt Unsupported operation
+            Contract-->>Consumer: UnsupportedOperationError
+        else Operation is supported
+            Session->>Model: validate Python value type and session ownership
+            alt Foreign or incompatible ciphertext
+                Model-->>Consumer: IncompatibleCiphertextError
+            else Ciphertext belongs to session
+                Session->>Model: validate context, key bundle, backend and shape
+                alt Metadata mismatch
+                    Model-->>Consumer: IncompatibleCiphertextError
+                else Metadata compatible
+                    Session->>Contract: calculate resulting depth
+                    alt Required depth exceeds configured depth
+                        Contract-->>Consumer: IncompatibleCiphertextError
+                    else Depth is available
+                        Session->>Backend: execute operation
+                        alt Native backend unavailable or cannot initialize
+                            Backend-->>Consumer: BackendUnavailableError
+                        else Native execution succeeds
+                            Backend-->>Session: encrypted result handle
+                            Session-->>Consumer: EncryptedVector or EncryptedScalar
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    opt Compute-only session calls decrypt()
+        Consumer->>Session: decrypt(value)
+        Session-->>Consumer: SecretKeyUnavailableError
+    end
+
+    opt Workspace save/load/open
+        Consumer->>Artifact: access workspace or ciphertext artifact
+        alt Missing, corrupt, unsafe or incompatible artifact
+            Artifact-->>Consumer: ArtifactError
+        else Valid artifact
+            Artifact-->>Consumer: loaded encrypted object
+        end
+    end
+
+    opt Result release
+        Consumer->>Session: release aggregate to recipient
+        alt Not scalar, wrong recipient, or operation not approved
+            Session-->>Consumer: ResultReleaseError or IncompatibleCiphertextError
+        else Approved sum, mean, or variance
+            Session-->>Consumer: ReleasedResult
+        end
+    end
