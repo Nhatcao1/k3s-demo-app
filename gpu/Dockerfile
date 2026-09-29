@@ -126,8 +126,8 @@ RUN CMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
 # non-system shared libraries and a PEP 600 tag matching Ubuntu 22.04/glibc
 # 2.35, including Google Colab. The NVIDIA driver remains a host requirement
 # and is not bundled.
-RUN PATH="/opt/fides-wheel-build/bin:${PATH}" \
-    test "$(command -v patchelf)" = /opt/fides-wheel-build/bin/patchelf \
+RUN export PATH="/opt/fides-wheel-build/bin:${PATH}" \
+    && test "$(command -v patchelf)" = /opt/fides-wheel-build/bin/patchelf \
     && /opt/fides-wheel-build/bin/patchelf --version \
       | grep -F 'patchelf 0.19.1' \
     && /opt/fides-wheel-build/bin/auditwheel show \
