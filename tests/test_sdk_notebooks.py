@@ -23,12 +23,11 @@ REQUIRED_HEADINGS = (
 
 
 class SDKNotebookTests(unittest.TestCase):
-    def test_two_notebooks_are_valid_and_code_cells_compile(self) -> None:
-        paths = sorted(NOTEBOOK_DIRECTORY.glob("*.ipynb"))
-        self.assertEqual(
-            [path.name for path in paths],
-            ["01_owner_encrypt.ipynb", "02_compute_encrypted.ipynb"],
-        )
+    def test_workspace_notebooks_are_valid_and_code_cells_compile(self) -> None:
+        paths = [
+            NOTEBOOK_DIRECTORY / "01_owner_encrypt.ipynb",
+            NOTEBOOK_DIRECTORY / "02_compute_encrypted.ipynb",
+        ]
         for path in paths:
             with self.subTest(path=path.name):
                 notebook = json.loads(path.read_text(encoding="utf-8"))

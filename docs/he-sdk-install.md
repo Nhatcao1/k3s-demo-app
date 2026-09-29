@@ -209,6 +209,10 @@ docker run --rm --gpus all -p 8888:8888 \
   docker.io/dockerboi99/he_k8s:notebook-gpu-latest
 ```
 
+Open `gpu_sdk_example.ipynb` in JupyterLab. The notebook is bundled into the
+same image as the SDK and FIDES native runtime; it does not install packages or
+run an automatic test at container startup.
+
 Chỉ dùng lệnh này sau khi job `build-he-notebook-gpu` đã push tag. Docker host
 phải cài NVIDIA Container Toolkit và lệnh sau phải chạy được:
 

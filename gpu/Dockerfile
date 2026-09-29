@@ -176,10 +176,9 @@ USER worker
 
 ENTRYPOINT ["python", "-m", "he_worker"]
 
-# Interactive GPU SDK image. GitLab only compiles and packages this target;
-# it deliberately does not create a FIDES session because the self-hosted CI
-# runner has no GPU. The K3s Notebook Pod performs the real CUDA acceptance
-# check before JupyterLab starts.
+# Interactive GPU SDK image. GitLab compiles and packages this target without
+# creating a FIDES session because the self-hosted CI runner has no GPU. The
+# image contains the exact example notebook intended for this environment.
 FROM builder AS sdk-notebook
 
 ARG VCS_REF=unknown
@@ -195,6 +194,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /workspace
 
 COPY dist/he_looming_sdk-*.whl dist/SHA256SUMS /opt/he-sdk-wheel/
+COPY examples/notebooks/gpu_sdk_example.ipynb /opt/he-notebooks/gpu_sdk_example.ipynb
 RUN python3.12 -m venv /opt/venv \
     && cd /opt/he-sdk-wheel \
     && sha256sum -c SHA256SUMS \
@@ -203,10 +203,11 @@ RUN python3.12 -m venv /opt/venv \
         /opt/he-sdk-fides-wheel/he_sdk_fides-*.whl \
     && /opt/venv/bin/pip install --no-cache-dir 'jupyterlab>=4,<5' \
     && /opt/venv/bin/python -c \
-        'from he_sdk import HESession; from he_sdk_fides import FidesBackend; print("HE GPU notebook packages ready; CUDA runtime test deferred to K3s")'
+        'from he_sdk import HESession; from he_sdk_fides import FidesBackend; print("HE GPU notebook imports ready")'
 
-RUN useradd --create-home --uid 10001 notebook \
-    && chown notebook:notebook /workspace
+RUN cp /opt/he-notebooks/gpu_sdk_example.ipynb /workspace/gpu_sdk_example.ipynb \
+    && useradd --create-home --uid 10001 notebook \
+    && chown -R notebook:notebook /workspace
 
 LABEL org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.source="${SOURCE_URL}" \

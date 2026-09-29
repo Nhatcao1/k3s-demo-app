@@ -20,9 +20,10 @@ The same Dockerfile exposes an `sdk-notebook` target. GitLab job
 `build-he-notebook-gpu` publishes
 `docker.io/dockerboi99/he_k8s:notebook-gpu-<short-sha>` without requiring a GPU
 on the runner. The image contains JupyterLab, the checked core SDK wheel, the
-FIDES plugin wheel, CUDA/FIDESlib, and its native extension. The first real
-GPU operation runs as a startup gate in the K3s T4 Notebook Pod; there is no
-automatic CPU fallback.
+FIDES plugin wheel, CUDA/FIDESlib, its native extension, and
+`examples/notebooks/gpu_sdk_example.ipynb`. The image build checks package
+imports but does not run a GPU operation. The example creates the FIDES
+session only when its cells are executed on an NVIDIA GPU host.
 
 The image exposes the same `/v1/evaluate` HTTP shape as the CPU evaluator for
 `add`, `subtract`, `multiply`, `square`, `sum`, `mean`, and population

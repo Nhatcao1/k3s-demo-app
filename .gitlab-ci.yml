@@ -360,6 +360,7 @@ build-he-notebook-gpu:
       changes:
         - .gitlab-ci.yml
         - gpu/**/*
+        - examples/notebooks/gpu_sdk_example.ipynb
         - he_sdk/**/*
         - pyproject.toml
     # A CPU-only runner can compile this CUDA image on a feature branch. The
