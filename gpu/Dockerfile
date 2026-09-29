@@ -17,7 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libomp-dev \
     patch \
-    patchelf \
     python3.12 \
     python3.12-dev \
     python3.12-venv \
@@ -112,7 +111,10 @@ RUN python3.12 -m venv /opt/fides-wheel-build \
       --disable-pip-version-check \
       'auditwheel>=6.4,<7' \
       'build>=1.2,<2' \
-      'patchelf==0.18.0'
+      'patchelf==0.19.1.0' \
+    && test -x /opt/fides-wheel-build/bin/patchelf \
+    && /opt/fides-wheel-build/bin/patchelf --version \
+      | grep -F 'patchelf 0.19.1'
 
 RUN CMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
     /opt/fides-wheel-build/bin/python -m build \
@@ -125,7 +127,9 @@ RUN CMAKE_PREFIX_PATH="/opt/fideslib;/opt/openfhe" \
 # 2.35, including Google Colab. The NVIDIA driver remains a host requirement
 # and is not bundled.
 RUN PATH="/opt/fides-wheel-build/bin:${PATH}" \
-    patchelf --version \
+    test "$(command -v patchelf)" = /opt/fides-wheel-build/bin/patchelf \
+    && /opt/fides-wheel-build/bin/patchelf --version \
+      | grep -F 'patchelf 0.19.1' \
     && /opt/fides-wheel-build/bin/auditwheel show \
       /opt/he-sdk-fides-wheel-raw/he_sdk_fides-*.whl \
     && /opt/fides-wheel-build/bin/auditwheel repair \
